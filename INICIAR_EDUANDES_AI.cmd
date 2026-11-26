@@ -5,38 +5,19 @@ cd /d "%~dp0"
 
 set "ROOT=%~dp0"
 if "%ROOT:~-1%"=="\" set "ROOT=%ROOT:~0,-1%"
-set "PY_EXE=%ROOT%\.venv\Scripts\python.exe"
-set "HF_CACHE=%ROOT%\.cache\huggingface"
 
-if not exist "%PY_EXE%" (
-  set "PY_EXE=C:\Users\NASHO\.gemini\antigravity\scratch\educore-binacional\.venv\Scripts\python.exe"
-)
-if not exist "%HF_CACHE%" (
-  set "HF_CACHE=C:\Users\NASHO\.gemini\antigravity\scratch\educore-binacional\.cache\huggingface"
-)
-
-if not exist "%PY_EXE%" (
+if not exist "%ROOT%\.venv\Scripts\python.exe" (
   echo No se encontro el entorno Python .venv. Revisa la instalacion en README.md.
   pause
   exit /b 1
 )
 
-set "EDUCORE_DB=%ROOT%\data\educore.sqlite3"
-set "EDUCORE_ADAPTER_DIR=%ROOT%\artifacts\main-01\adapter"
-set "EDUCORE_ENGINE=local"
-set "EDUCORE_REINFORCEMENT_ENGINE=trained-base"
-set "EDUCORE_ROOT=%ROOT%"
-set "HF_HOME=%HF_CACHE%"
-set "HF_HUB_OFFLINE=1"
-set "TRANSFORMERS_OFFLINE=1"
-set "USE_TF=0"
-set "TRANSFORMERS_NO_TF=1"
-set "USE_TORCH=1"
-set "PYTHONUTF8=1"
-set "PYTHONPATH=%ROOT%\src;%ROOT%"
+echo Iniciando EduAndes AI (con auto-reinicio) en http://127.0.0.1:8765/#/ ...
+rem El supervisor corre oculto y desacoplado: cerrar esta ventana NO apaga el servidor.
+start "" /min powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%ROOT%\scripts\laptop\supervisor.ps1" -Port 8765
 
-echo Iniciando EduAndes AI en http://127.0.0.1:8765/#/ ...
-start "" /B "%PY_EXE%" "%ROOT%\scripts\laptop\servir.py" --host 127.0.0.1 --port 8765
-timeout /t 3 /nobreak >nul
+echo Esperando que el servidor responda...
+powershell -NoProfile -Command "for($i=0;$i -lt 60;$i++){ try { if((Invoke-WebRequest 'http://127.0.0.1:8765/' -UseBasicParsing -TimeoutSec 2).StatusCode -eq 200){ exit 0 } } catch {}; Start-Sleep 1 }; exit 1"
 start "" "http://127.0.0.1:8765/#/"
-echo Servidor activo. Para detenerlo ejecuta DETENER_EDUANDES_AI.cmd.
+echo Servidor activo. Logs en la carpeta logs\. Para detenerlo ejecuta DETENER_EDUANDES_AI.cmd.
+timeout /t 3 >nul

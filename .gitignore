@@ -9,3 +9,4 @@ __pycache__/
 artifacts/course-generation/
 data/raw/
 .env
+logs/
