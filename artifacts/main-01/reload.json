@@ -1,0 +1,14 @@
+{
+  "question": "¿Qué es el valor central de un conjunto de datos ordenado?",
+  "engine": {
+    "base_model": "Qwen/Qwen3-1.7B",
+    "base_revision": "70d244cc86ccca08cf5af4e1e306ecf908b1ad5e",
+    "adapter_active": true,
+    "adapter_version": "258689c74de92d45ec68c09164980beba359c86629fb47d91e83576affa8a075",
+    "profile": "train",
+    "precision": "bf16",
+    "device": "cuda:0",
+    "max_length": 768,
+    "mode": "real"
+  }
+}

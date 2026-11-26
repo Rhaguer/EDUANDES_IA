@@ -1,0 +1,13 @@
+README.md
+pyproject.toml
+src/educore_ai.egg-info/PKG-INFO
+src/educore_ai.egg-info/SOURCES.txt
+src/educore_ai.egg-info/dependency_links.txt
+src/educore_ai.egg-info/requires.txt
+src/educore_ai.egg-info/top_level.txt
+src/educore_ml/__init__.py
+src/educore_ml/__main__.py
+src/educore_ml/data.py
+src/educore_ml/evaluate.py
+src/educore_ml/model.py
+src/educore_ml/train.py

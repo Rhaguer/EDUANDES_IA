@@ -1,0 +1,13 @@
+{
+  "base_model": "Qwen/Qwen3-1.7B",
+  "base_revision": "70d244cc86ccca08cf5af4e1e306ecf908b1ad5e",
+  "adapter_version": "258689c74de92d45ec68c09164980beba359c86629fb47d91e83576affa8a075",
+  "precision": "bf16",
+  "max_length": 768,
+  "profile": "train",
+  "global_step": 250,
+  "adapter_initial_sha256": "62b600af6e4e30d1ddf9fc930794b710304afd61564816963439aa3fff943576",
+  "adapter_final_sha256": "fb98f785c35d62de6eb82133245d77527fa1602ebffd3f8389b6024b71a773d3",
+  "trainable_changed": true,
+  "selected_step": 250
+}

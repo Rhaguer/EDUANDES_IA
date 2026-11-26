@@ -1,0 +1,11 @@
+.venv/
+.cache/
+.presentacion/
+__pycache__/
+*.py[cod]
+*.sqlite3-wal
+*.sqlite3-shm
+*.sqlite3-journal
+artifacts/course-generation/
+data/raw/
+.env

@@ -1,0 +1,48 @@
+{
+  "config": {
+    "profile": "train",
+    "seed": 42,
+    "precision": "auto",
+    "max_length": 768,
+    "rank": 8,
+    "alpha": 16,
+    "dropout": 0.05,
+    "learning_rate": 0.0001,
+    "batch_size": 1,
+    "gradient_accumulation": 8,
+    "epochs": 1,
+    "max_steps": -1,
+    "eval_steps": 50,
+    "baseline_examples": 12
+  },
+  "data_sha256": {
+    "train.jsonl": "4e83e8133ee46a6922a5d6a369929a85dc191aec6b4e8d3d6b7e3285dd16569c",
+    "validation.jsonl": "955b81a32dc00dbeaca544aec8e2dcb3024cd224137864cd905746aacebf6871"
+  },
+  "base_model": "Qwen/Qwen3-1.7B",
+  "base_revision": "70d244cc86ccca08cf5af4e1e306ecf908b1ad5e",
+  "precision": "bf16",
+  "runtime": {
+    "python": "3.12.10",
+    "platform": "Windows-10-10.0.19045-SP0",
+    "versions": {
+      "torch": "2.7.1+cu126",
+      "transformers": "4.55.4",
+      "peft": "0.17.1",
+      "accelerate": "1.10.1",
+      "huggingface-hub": "0.34.4",
+      "datasets": "4.0.0"
+    },
+    "cuda": "12.6",
+    "gpu": "NVIDIA GeForce RTX 3060",
+    "gpu_total_bytes": 12884246528,
+    "gpu_free_bytes_at_start": 11801722880
+  },
+  "code": {
+    "git_revision": null,
+    "source_sha256": {
+      "model.py": "c5f9cb1c88e98e84c95638144307a27a882e49df107e4c65e32da0571972d009",
+      "train.py": "8f8d97934bddffebaf21aa53746493933809db80cfdf850434816caf00e33ebf"
+    }
+  }
+}

@@ -1,0 +1,14 @@
+profile: train
+seed: 42
+precision: auto
+max_length: 768
+rank: 8
+alpha: 16
+dropout: 0.05
+learning_rate: 0.0001
+batch_size: 1
+gradient_accumulation: 8
+epochs: 1
+max_steps: -1
+eval_steps: 50
+baseline_examples: 12
