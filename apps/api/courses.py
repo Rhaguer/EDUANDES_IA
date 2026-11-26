@@ -20,6 +20,47 @@ from . import course_store, learner_store
 from .material_import import MAX_FILE_BYTES, extract_pages
 from .store import connect
 
+PARALLEL_WORKERS = 8
+
+
+def generate_items_parallel(engine, jobs: list[dict], workers: int = PARALLEL_WORKERS) -> list[dict | None]:
+    """Generate several questions at once (cloud engines only). A failed job returns None
+    and is topped up later by the sequential loop, so quality checks are unchanged."""
+
+    def run(job: dict):
+        for page in job["candidates"]:
+            try:
+                try:
+                    return engine.generate_course_item(page, job["objective"], job["type"], job["prev_q"], previous_answers=job["prev_a"], style_index=job["index"])
+                except TypeError:
+                    return engine.generate_course_item(page, job["objective"], job["type"], job["prev_q"])
+            except ValueError:
+                continue
+            except Exception:
+                logging.getLogger(__name__).exception("Fallo transitorio del motor; se reintentará en secuencia")
+                return None
+        return None
+
+    if not jobs:
+        return []
+    with ThreadPoolExecutor(max_workers=min(workers, len(jobs))) as pool:
+        return list(pool.map(run, jobs))
+
+
+def plan_parallel_jobs(pages: list[dict], indexes, stride: int, shift: int, used_pages: set, item_type_for, objective: str, prev_q: list[str], prev_a: list[str]) -> list[dict]:
+    claimed = set(used_pages)
+    jobs = []
+    for index in indexes:
+        start = (index * stride + shift) % len(pages)
+        rotated = pages[start:] + pages[:start]
+        unused = [p for p in rotated if (p["material_id"], p["number"]) not in claimed]
+        reused = [p for p in rotated if (p["material_id"], p["number"]) in claimed]
+        candidates = (unused + reused)[: min(6, len(rotated))]
+        if candidates:
+            claimed.add((candidates[0]["material_id"], candidates[0]["number"]))
+        jobs.append({"index": index, "type": item_type_for(index), "candidates": candidates, "objective": objective, "prev_q": list(prev_q), "prev_a": list(prev_a)})
+    return jobs
+
 
 LOGGER = logging.getLogger(__name__)
 Short = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=300)]
@@ -345,6 +386,34 @@ class CourseService:
                 for item in quiz["items"]
                 if isinstance(item.get("citation"), dict)
             }
+            if getattr(engine, "parallel_safe", False) and len(quiz["items"]) < quiz["requested_count"]:
+                def quiz_type_for(i: int) -> str:
+                    kind = quiz["question_type"]
+                    if kind != "mixed":
+                        return kind
+                    if quiz["requested_count"] < 3:
+                        return "open" if i == quiz["requested_count"] - 1 else "multiple_choice"
+                    return "open" if i % 3 == 2 else "multiple_choice"
+
+                jobs = plan_parallel_jobs(pages, range(len(quiz["items"]), quiz["requested_count"]), stride,
+                                          generation_round * len(quiz["material_ids"]), used_pages, quiz_type_for,
+                                          quiz["objective"], [i["question"] for i in quiz["items"]],
+                                          [i["answer"] for i in quiz["items"] if i.get("answer")])
+                for job, generated in zip(jobs, generate_items_parallel(engine, jobs)):
+                    if generated is None:
+                        continue
+                    generated.update(id=str(uuid4()), reviewed=False)
+                    try:
+                        with connect(self.db, write=True) as db:
+                            item = self.validate_item(db, generated, quiz["unit_id"], quiz["material_ids"], generated=True)
+                            if item["type"] != job["type"] or any(content_key(item["question"]) == content_key(old["question"]) for old in quiz["items"]):
+                                continue
+                            quiz["items"].append(item)
+                            if isinstance(item.get("citation"), dict):
+                                used_pages.add((item["citation"]["material_id"], item["citation"]["page_number"]))
+                            db.execute("UPDATE ec_quizzes SET payload=? WHERE id=? AND status='generating'", (dump(quiz), identifier))
+                    except ValueError:
+                        continue
             for index in range(len(quiz["items"]), quiz["requested_count"]):
                 item_type = quiz["question_type"]
                 if item_type == "mixed":
@@ -863,6 +932,27 @@ def build_router(service: CourseService):
             for it in items if isinstance(it.get("citation"), dict)
         }
         stride = max(1, len(pages) // max(request.count, 1))
+        if getattr(engine, "parallel_safe", False) and len(items) < request.count:
+            def drill_type_for(i: int) -> str:
+                return ("open" if i % 3 == 2 else "multiple_choice") if request.question_type == "mixed" else request.question_type
+
+            jobs = plan_parallel_jobs(pages, range(len(items), request.count), stride, 0, used_pages, drill_type_for,
+                                      value.get("topic") or unit.get("objectives") or "",
+                                      [it["question"] for it in items], [it["answer"] for it in items if it.get("answer")])
+            for generated in generate_items_parallel(engine, jobs):
+                if generated is None:
+                    continue
+                generated.update(id=str(uuid4()), reviewed=True)
+                try:
+                    with connect(service.db) as db:
+                        validated = service.validate_item(db, generated, value["unit_id"], material_ids, generated=True)
+                except ValueError:
+                    continue
+                if any(content_key(validated["question"]) == content_key(old["question"]) for old in items):
+                    continue
+                items.append(validated)
+                if isinstance(validated.get("citation"), dict):
+                    used_pages.add((validated["citation"]["material_id"], validated["citation"]["page_number"]))
         for idx in range(len(items), request.count):
             drill_type = request.question_type
             if drill_type == "mixed":

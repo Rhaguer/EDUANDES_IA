@@ -36,6 +36,7 @@ class _CloudEngineBase:
     """Shared course item and reinforcement entrypoints for lightweight API-backed engines."""
 
     reinforcement_prompt_version = "cloud-v1"
+    parallel_safe = True  # API-backed: many questions can be requested concurrently
 
     def __init__(self) -> None:
         self._lock = Lock()
@@ -126,7 +127,18 @@ class BedrockEngine(_CloudEngineBase):
             or os.environ.get("EDUCORE_BEDROCK_MODEL_ID")
             or "us.amazon.nova-lite-v1:0"
         )
-        self.client = boto3.client("bedrock-runtime", region_name=self.region)
+        from botocore.config import Config
+
+        self.client = boto3.client(
+            "bedrock-runtime",
+            region_name=self.region,
+            config=Config(
+                retries={"max_attempts": 6, "mode": "adaptive"},
+                connect_timeout=5,
+                read_timeout=40,
+                max_pool_connections=32,
+            ),
+        )
 
     def status(self) -> dict:
         return {
@@ -148,13 +160,13 @@ class BedrockEngine(_CloudEngineBase):
         inference_config = {"maxTokens": int(tokens), "temperature": 0.65 if creative else 0.0}
         if creative:
             inference_config["topP"] = 0.9
-        with self._lock:
-            response = self.client.converse(
-                modelId=self.model_id,
-                system=[{"text": instructions}],
-                messages=[{"role": "user", "content": [{"text": content}]}],
-                inferenceConfig=inference_config,
-            )
+        # boto3 clients are thread-safe: no lock, so several questions are generated at once.
+        response = self.client.converse(
+            modelId=self.model_id,
+            system=[{"text": instructions}],
+            messages=[{"role": "user", "content": [{"text": content}]}],
+            inferenceConfig=inference_config,
+        )
         blocks = response.get("output", {}).get("message", {}).get("content", [])
         return "".join(block.get("text", "") for block in blocks if isinstance(block, dict)).strip()
 
@@ -212,7 +224,7 @@ class OpenAICompatibleEngine(_CloudEngineBase):
             method="POST",
         )
         try:
-            with self._lock, urllib.request.urlopen(request, timeout=60) as response:
+            with urllib.request.urlopen(request, timeout=60) as response:
                 data = json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="ignore")[:300]
