@@ -78,6 +78,20 @@
 
   var A11Y_KEY = "eduandes.a11y.v1";
   var WELCOME_STORAGE_KEY = "eduandes.welcome.entered";
+  var AUTH_ROLE_KEY = "eduandes.auth.role";
+  var VIEW_MODE_KEY = "educore.view-mode";
+  var CREDENTIALS = {
+    "docente@educhile.cl": { password: "123456", role: "teacher", label: "Docente" },
+    "estudiante@educhile.cl": { password: "123456", role: "student", label: "Estudiante" },
+  };
+  var TEACHER_ONLY_HASHES = [
+    "#/asignaturas",
+    "#/curso",
+    "#/estudiantes",
+    "#/revision-actividad",
+    "#/materiales",
+    "#/actividades",
+  ];
   var currentIndex = 0;
   var overlay = null;
   var a11yOverlay = null;
@@ -256,6 +270,48 @@
     document.body.appendChild(a11yOverlay);
   }
 
+  function getAuthRole() {
+    try {
+      var role = sessionStorage.getItem(AUTH_ROLE_KEY);
+      if (role === "teacher" || role === "student") return role;
+    } catch (_) {}
+    return null;
+  }
+
+  function isTeacherOnlyHash(hash) {
+    var h = (hash || window.location.hash || "#/").toLowerCase();
+    for (var i = 0; i < TEACHER_ONLY_HASHES.length; i++) {
+      if (h === TEACHER_ONLY_HASHES[i] || h.indexOf(TEACHER_ONLY_HASHES[i] + "/") === 0) {
+        return true;
+      }
+    }
+    if (h.indexOf("#/unidad/") === 0 && (h.indexOf("/materials") !== -1 || h.indexOf("/preparar") !== -1)) {
+      return true;
+    }
+    return false;
+  }
+
+  function enforceRoleIsolation() {
+    var role = getAuthRole();
+    if (!role) return;
+    try {
+      localStorage.setItem(VIEW_MODE_KEY, role);
+    } catch (_) {}
+    switchMode(role);
+    if (role === "student" && isTeacherOnlyHash(window.location.hash)) {
+      window.location.hash = "#/";
+    }
+  }
+
+  function getVisibleSteps() {
+    if (getAuthRole() === "student") {
+      return STEPS.filter(function (s) {
+        return s.role !== "Docente";
+      });
+    }
+    return STEPS;
+  }
+
   function switchMode(target) {
     var btns = document.querySelectorAll(".ref-mode-switch button");
     if (!btns || btns.length < 2) return;
@@ -302,7 +358,7 @@
     if (e.key === "Escape") {
       closeTour();
       closeA11yModal();
-    } else if (overlay && e.key === "ArrowRight" && currentIndex < STEPS.length - 1) {
+    } else if (overlay && e.key === "ArrowRight" && currentIndex < getVisibleSteps().length - 1) {
       renderStep(currentIndex + 1);
     } else if (overlay && e.key === "ArrowLeft" && currentIndex > 0) {
       renderStep(currentIndex - 1);
@@ -310,8 +366,11 @@
   }
 
   function renderStep(idx) {
+    var steps = getVisibleSteps();
+    if (!steps.length) return;
+    if (idx >= steps.length) idx = steps.length - 1;
     currentIndex = idx;
-    var step = STEPS[idx];
+    var step = steps[idx];
     if (!overlay) {
       overlay = document.createElement("div");
       overlay.className = "ea-tour-backdrop";
@@ -325,25 +384,25 @@
       document.addEventListener("keydown", onKeyDown);
     }
 
-    var pct = Math.round(((idx + 1) / STEPS.length) * 100);
+    var pct = Math.round(((idx + 1) / steps.length) * 100);
     overlay.innerHTML =
       '<div class="ea-tour-modal">' +
         '<div class="ea-tour-head">' +
-          '<span class="ea-tour-badge">' + step.role + " · Paso " + (idx + 1) + " de " + STEPS.length + "</span>" +
+          '<span class="ea-tour-badge">' + step.role + " · Paso " + (idx + 1) + " de " + steps.length + "</span>" +
           '<button type="button" class="ea-tour-close" aria-label="Cerrar guía">&times;</button>' +
         "</div>" +
         '<div class="ea-tour-progress"><span style="width:' + pct + '%"></span></div>' +
         '<h2 class="ea-tour-title">' + step.title + "</h2>" +
         '<p class="ea-tour-body">' + step.body + "</p>" +
         '<div class="ea-tour-dots">' +
-          STEPS.map(function (_, i) {
+          steps.map(function (_, i) {
             return '<button type="button" class="ea-tour-dot' + (i === idx ? " is-active" : "") + '" data-step="' + i + '" aria-label="Ir al paso ' + (i + 1) + '"></button>';
           }).join("") +
         "</div>" +
         '<div class="ea-tour-actions">' +
           '<button type="button" class="ea-tour-btn ea-tour-btn-ghost" data-nav="prev"' + (idx === 0 ? " disabled" : "") + ">Anterior</button>" +
           '<button type="button" class="ea-tour-btn ea-tour-btn-action" data-nav="action">' + step.actionLabel + "</button>" +
-          '<button type="button" class="ea-tour-btn ea-tour-btn-primary" data-nav="next">' + (idx === STEPS.length - 1 ? "Listo" : "Siguiente") + "</button>" +
+          '<button type="button" class="ea-tour-btn ea-tour-btn-primary" data-nav="next">' + (idx === steps.length - 1 ? "Listo" : "Siguiente") + "</button>" +
         "</div>" +
       "</div>";
 
@@ -352,7 +411,7 @@
       if (currentIndex > 0) renderStep(currentIndex - 1);
     });
     overlay.querySelector('[data-nav="next"]').addEventListener("click", function () {
-      if (currentIndex < STEPS.length - 1) renderStep(currentIndex + 1);
+      if (currentIndex < getVisibleSteps().length - 1) renderStep(currentIndex + 1);
       else closeTour();
     });
     overlay.querySelector('[data-nav="action"]').addEventListener("click", function () {
@@ -444,6 +503,255 @@
     renderDrillCard(page, reinforcementId);
   }
 
+  function escapeHtml(text) {
+    return String(text || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function updateRealProgressRing(page, completed, total) {
+    var box = page.querySelector(".sr-route-progress");
+    if (!box || !total || total <= 0) return;
+    var ring = box.querySelector(".sr-progress-ring");
+    var fill = box.querySelector(".sr-ring-fill");
+    var strong = box.querySelector(".sr-progress-ring strong");
+    var labelSpan = box.querySelector(".sr-progress-ring span");
+    var desc = box.querySelector("p");
+    var safeDone = Math.max(0, Math.min(completed, total));
+    page.setAttribute("data-ea-done", String(safeDone));
+    page.setAttribute("data-ea-total", String(total));
+    if (ring) ring.setAttribute("aria-label", safeDone + " de " + total + " temas fallados reforzados");
+    if (fill) {
+      fill.setAttribute("pathLength", String(total));
+      fill.setAttribute("stroke-dasharray", safeDone + " " + total);
+      fill.style.strokeDasharray = safeDone + " " + total;
+      fill.style.strokeDashoffset = "0";
+    }
+    if (strong) {
+      var wantedStrong = safeDone + "<small> / " + total + "</small>";
+      if (strong.innerHTML !== wantedStrong) strong.innerHTML = wantedStrong;
+    }
+    if (labelSpan) {
+      var wantedLabel = total === 1 ? "tema fallado reforzado" : "temas fallados reforzados";
+      if (labelSpan.textContent !== wantedLabel) labelSpan.textContent = wantedLabel;
+    }
+    if (desc) {
+      var wantedDesc;
+      if (safeDone >= total) {
+        wantedDesc = "¡Recorrido completo! Reforzaste las " + total + (total === 1 ? " pregunta que fallaste." : " preguntas que fallaste.");
+      } else {
+        var remaining = total - safeDone;
+        wantedDesc = "Llevas " + safeDone + " de " + total + " temas fallados reforzados. Te " + (remaining === 1 ? "falta 1 tema" : "faltan " + remaining + " temas") + " por repasar.";
+      }
+      if (desc.textContent !== wantedDesc) desc.textContent = wantedDesc;
+    }
+  }
+
+  function renderFailedTopicsCard(page, reinforcementId, countSel) {
+    if (page.querySelector('.ea-failed-card[data-reinf="' + reinforcementId + '"]')) return;
+    var failedCard = document.createElement("section");
+    failedCard.className = "sr-card ea-failed-card";
+    failedCard.setAttribute("data-reinf", reinforcementId);
+    failedCard.innerHTML =
+      '<div class="sr-card-title">' +
+        '<span class="sr-icon-tile sr-amber"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg></span>' +
+        '<div>' +
+          '<p class="sr-eyebrow">REFUERZO SEGÚN TUS RESPUESTAS</p>' +
+          '<h2>Cargando las preguntas que fallaste…</h2>' +
+        "</div>" +
+      "</div>" +
+      '<div class="ea-failed-body"><div class="sr-loading"><span class="spinner"></span> Revisando tu intento…</div></div>';
+
+    var drillCard = page.querySelector('.ea-drill-card[data-reinf="' + reinforcementId + '"]');
+    if (drillCard && drillCard.parentNode === page) {
+      page.insertBefore(failedCard, drillCard);
+    } else {
+      page.appendChild(failedCard);
+    }
+
+    var studentId = "";
+    try { studentId = localStorage.getItem("educore.student-id") || ""; } catch (_) {}
+    var url = "/api/reinforcements/" + encodeURIComponent(reinforcementId) + "/failed-topics" + (studentId ? "?student_id=" + encodeURIComponent(studentId) : "");
+    var storageKey = "eduandes.reinf.progress." + reinforcementId;
+
+    function loadDoneMap() {
+      try {
+        var parsed = JSON.parse(localStorage.getItem(storageKey) || "{}");
+        return parsed && typeof parsed === "object" ? parsed : {};
+      } catch (_) {
+        return {};
+      }
+    }
+    function saveDoneMap(map) {
+      try { localStorage.setItem(storageKey, JSON.stringify(map)); } catch (_) {}
+    }
+
+    fetch(url)
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data) return;
+        var titleEl = failedCard.querySelector("h2");
+        var bodyEl = failedCard.querySelector(".ea-failed-body");
+        var items = data.failed_items || [];
+        var failedCount = items.length;
+
+        if (countSel && failedCount > 0) {
+          var existingOpt = countSel.querySelector('option[value="' + failedCount + '"]');
+          if (!existingOpt) {
+            var opt = document.createElement("option");
+            opt.value = String(failedCount);
+            opt.textContent = failedCount + (failedCount === 1 ? " pregunta (la que fallaste)" : " preguntas (las que fallaste)");
+            countSel.insertBefore(opt, countSel.firstChild);
+          }
+          countSel.value = String(failedCount);
+        }
+
+        if (failedCount === 0) {
+          page.classList.remove("ea-has-failed-topics");
+          titleEl.textContent = "¡Sin errores en tu intento! (" + data.correct_count + " / " + data.total_items + " correctas)";
+          bodyEl.innerHTML = '<p class="sr-subtitle">Respondiste correctamente todas las preguntas de esta práctica. Puedes usar la práctica ampliada de abajo si deseas seguir ejercitando.</p>';
+          updateRealProgressRing(page, data.total_items || 1, data.total_items || 1);
+          return;
+        }
+
+        page.classList.add("ea-has-failed-topics");
+        titleEl.textContent = "Repasa tus " + failedCount + (failedCount === 1 ? " pregunta fallada" : " preguntas falladas") + " (" + data.correct_count + " / " + data.total_items + " correctas)";
+        var doneMap = loadDoneMap();
+        var activeIdx = 0;
+        for (var firstPending = 0; firstPending < items.length; firstPending++) {
+          if (!doneMap[items[firstPending].id]) {
+            activeIdx = firstPending;
+            break;
+          }
+        }
+
+        function drawFailedList() {
+          var doneCount = items.filter(function (it) { return Boolean(doneMap[it.id]); }).length;
+          updateRealProgressRing(page, doneCount, failedCount);
+          if (activeIdx >= items.length) activeIdx = items.length - 1;
+          if (activeIdx < 0) activeIdx = 0;
+          var it = items[activeIdx];
+          var isDone = Boolean(doneMap[it.id]);
+          var cite = it.citation || {};
+          var letters = ["A", "B", "C", "D"];
+          var optsHtml = "";
+          if (it.type === "multiple_choice" && Array.isArray(it.options) && it.options.length) {
+            optsHtml =
+              '<div class="ea-failed-practice" data-item-id="' + escapeHtml(it.id) + '">' +
+                '<div class="ea-failed-opts">' +
+                  it.options.map(function (optText, oIdx) {
+                    return (
+                      '<button type="button" class="ea-failed-opt-btn" data-idx="' + oIdx + '">' +
+                        '<span class="sr-option-letter">' + (letters[oIdx] || "") + ".</span> " +
+                        escapeHtml(optText) +
+                      "</button>"
+                    );
+                  }).join("") +
+                "</div>" +
+                '<p class="ea-failed-opt-msg" aria-live="polite"></p>' +
+              "</div>";
+          }
+
+          bodyEl.innerHTML =
+            '<div class="ea-failed-summary">' +
+              '<span>Avance: <strong>' + doneCount + ' de ' + failedCount + '</strong> reforzados</span>' +
+              '<div class="ea-failed-pills" role="tablist" aria-label="Temas fallados">' +
+                items.map(function (itemObj, idx) {
+                  var cls = "ea-failed-pill";
+                  if (idx === activeIdx) cls += " is-active";
+                  if (doneMap[itemObj.id]) cls += " is-done";
+                  return '<button type="button" class="' + cls + '" data-pill="' + idx + '" aria-label="Tema ' + (idx + 1) + '">' + (idx + 1) + (doneMap[itemObj.id] ? " ✓" : "") + "</button>";
+                }).join("") +
+              "</div>" +
+            "</div>" +
+            '<article class="ea-failed-item' + (isDone ? " is-done" : "") + '" data-item-id="' + escapeHtml(it.id) + '">' +
+              '<div class="ea-failed-item-head">' +
+                '<span class="ea-failed-num">Tema ' + (activeIdx + 1) + " de " + failedCount + " · " + escapeHtml(it.topic) + "</span>" +
+                '<span class="ea-failed-status">' + (isDone ? "✓ Reforzado" : "Pendiente") + "</span>" +
+              "</div>" +
+              '<p class="ea-failed-q">' + escapeHtml(it.question) + "</p>" +
+              '<div class="ea-failed-compare">' +
+                '<div class="ea-failed-yours"><strong>Tu respuesta:</strong> ' + escapeHtml(it.student_response || "Sin respuesta") + "</div>" +
+                '<div class="ea-failed-ref"><strong>Correcta:</strong> ' + escapeHtml(it.correct_answer) + "</div>" +
+              "</div>" +
+              ((it.explanation || cite.quote)
+                ? '<details class="ea-failed-details"><summary>Ver explicación y cita del material</summary>' +
+                    (it.explanation ? '<p class="ea-failed-exp">' + escapeHtml(it.explanation) + "</p>" : "") +
+                    (cite.quote ? '<blockquote class="ea-failed-cite"><small>' + escapeHtml(cite.label || "Material") + ':</small> «' + escapeHtml(cite.quote) + "»</blockquote>" : "") +
+                  "</details>"
+                : "") +
+              optsHtml +
+              '<div class="ea-failed-actions">' +
+                '<div class="ea-failed-nav">' +
+                  '<button type="button" class="sr-button sr-secondary ea-failed-prev"' + (activeIdx === 0 ? " disabled" : "") + ">Anterior</button>" +
+                  '<button type="button" class="sr-button sr-secondary ea-failed-next"' + (activeIdx === items.length - 1 ? " disabled" : "") + ">Siguiente</button>" +
+                "</div>" +
+                '<button type="button" class="sr-button ' + (isDone ? "sr-secondary" : "sr-primary") + ' ea-failed-toggle" data-item-id="' + escapeHtml(it.id) + '">' +
+                  (isDone ? "Repasado ✓" : "Marcar reforzado") +
+                "</button>" +
+              "</div>" +
+            "</article>";
+
+          var pills = bodyEl.querySelectorAll(".ea-failed-pill");
+          for (var k = 0; k < pills.length; k++) {
+            pills[k].addEventListener("click", function (e) {
+              activeIdx = Number(e.currentTarget.getAttribute("data-pill"));
+              drawFailedList();
+            });
+          }
+          var prevBtn = bodyEl.querySelector(".ea-failed-prev");
+          if (prevBtn) prevBtn.addEventListener("click", function () { if (activeIdx > 0) { activeIdx--; drawFailedList(); } });
+          var nextBtn = bodyEl.querySelector(".ea-failed-next");
+          if (nextBtn) nextBtn.addEventListener("click", function () { if (activeIdx < items.length - 1) { activeIdx++; drawFailedList(); } });
+
+          var toggleBtns = bodyEl.querySelectorAll(".ea-failed-toggle");
+          for (var t = 0; t < toggleBtns.length; t++) {
+            toggleBtns[t].addEventListener("click", function (e) {
+              var id = e.currentTarget.getAttribute("data-item-id");
+              doneMap[id] = !doneMap[id];
+              saveDoneMap(doneMap);
+              if (doneMap[id] && activeIdx < items.length - 1) activeIdx++;
+              drawFailedList();
+            });
+          }
+
+          var practiceBoxes = bodyEl.querySelectorAll(".ea-failed-practice");
+          for (var p = 0; p < practiceBoxes.length; p++) {
+            (function (box) {
+              var id = box.getAttribute("data-item-id");
+              var item = items.find(function (x) { return x.id === id; });
+              if (!item) return;
+              var msgEl = box.querySelector(".ea-failed-opt-msg");
+              var optBtns = box.querySelectorAll(".ea-failed-opt-btn");
+              for (var b = 0; b < optBtns.length; b++) {
+                optBtns[b].addEventListener("click", function (ev) {
+                  var chosen = Number(ev.currentTarget.getAttribute("data-idx"));
+                  if (chosen === item.correct_index) {
+                    msgEl.className = "ea-failed-opt-msg is-ok";
+                    msgEl.textContent = "¡Correcto! Tema reforzado.";
+                    doneMap[id] = true;
+                    saveDoneMap(doneMap);
+                    setTimeout(function () {
+                      if (activeIdx < items.length - 1) activeIdx++;
+                      drawFailedList();
+                    }, 450);
+                  } else {
+                    msgEl.className = "ea-failed-opt-msg is-err";
+                    msgEl.textContent = "Revisa la explicación y vuelve a intentar.";
+                  }
+                });
+              }
+            })(practiceBoxes[p]);
+          }
+        }
+
+        drawFailedList();
+      })
+      .catch(function () {});
+  }
+
   function renderDrillCard(page, reinforcementId) {
     if (page.querySelector('.ea-drill-card[data-reinf="' + reinforcementId + '"]')) return;
 
@@ -455,10 +763,10 @@
         '<span class="sr-icon-tile sr-lilac"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5Z"/></svg></span>' +
         '<div>' +
           '<p class="sr-eyebrow">PRÁCTICA AMPLIADA DE REFUERZO</p>' +
-          '<h2>Ejercita con 10 o más preguntas del tema</h2>' +
+          '<h2>Ejercita con preguntas adicionales del tema</h2>' +
         "</div>" +
       "</div>" +
-      '<p class="sr-subtitle">Genera una serie completa de 10, 15 o 20 preguntas verificadas sobre el material de la unidad para reforzar tu dominio.</p>' +
+      '<p class="sr-subtitle">Genera una serie de preguntas verificadas sobre el material de la unidad según las que fallaste o amplía hasta 20 preguntas.</p>' +
       '<div class="ea-drill-controls">' +
         '<label class="ea-drill-select-wrap">Cantidad: ' +
           '<select class="ea-drill-count">' +
@@ -482,6 +790,26 @@
     var startBtn = card.querySelector(".ea-drill-start");
     var countSel = card.querySelector(".ea-drill-count");
     var typeSel = card.querySelector(".ea-drill-type");
+
+    // Evita que quede otro spinner paralelo ("Preparando tu próximo paso") compitiendo por el motor local.
+    setTimeout(function () {
+      var btns = page.querySelectorAll("button");
+      for (var i = 0; i < btns.length; i++) {
+        var txt = (btns[i].textContent || "").trim();
+        if (txt.indexOf("Continuar con el material") !== -1 && !btns[i].getAttribute("data-ea-auto-continued")) {
+          btns[i].setAttribute("data-ea-auto-continued", "1");
+          btns[i].click();
+          break;
+        }
+      }
+    }, 300);
+
+    renderFailedTopicsCard(page, reinforcementId, countSel);
+
+    var routeProgress = page.querySelector(".sr-route-progress");
+    if (routeProgress && routeProgress !== page.lastElementChild) {
+      page.appendChild(routeProgress);
+    }
 
     function renderDrillPlayer(drill) {
       var items = drill.items || [];
@@ -592,7 +920,21 @@
         body: JSON.stringify({ count: wanted, question_type: qType }),
       })
         .then(function (resp) {
-          if (!resp.ok) return resp.json().then(function (err) { throw new Error(err.detail || "No se pudo generar la práctica."); });
+          if (!resp.ok) {
+            return resp.text().then(function (txt) {
+              var msg = "No se pudo generar la práctica.";
+              try {
+                var err = JSON.parse(txt);
+                var detail = err && err.detail;
+                msg = Array.isArray(detail)
+                  ? detail.map(function (d) { return (d && d.msg) || JSON.stringify(d); }).join(" ")
+                  : (typeof detail === "string" ? detail : msg);
+              } catch (_) {
+                if (txt && txt.trim()) msg = txt.trim().slice(0, 180);
+              }
+              throw new Error(msg);
+            });
+          }
           return resp.json();
         })
         .then(function (drill) {
@@ -619,22 +961,57 @@
     }
     try {
       sessionStorage.removeItem(WELCOME_STORAGE_KEY);
+      sessionStorage.removeItem(AUTH_ROLE_KEY);
       localStorage.removeItem("educore.student-id");
     } catch (_) {}
     window.location.hash = "#/";
     showWelcomeScreen();
-    announceVisual("Sesión cerrada. Regresando a la portada de EduAndes AI.");
+    announceVisual("Sesión cerrada. Regresando al inicio de sesión de EduAndes AI.");
   }
 
+  var isUpdatingBanner = false;
+
   function ensureBannerButton() {
-    var topbar = document.querySelector(".ref-topbar");
-    if (!topbar) return;
+    if (isUpdatingBanner) return;
+    isUpdatingBanner = true;
+    try {
+      var topbar = document.querySelector(".ref-topbar");
+      if (!topbar) return;
 
-    if (!topbar.querySelector(".ea-topbar-bg")) {
-      topbar.insertBefore(topbarBackgroundEl(), topbar.firstChild);
-    }
+      if (!topbar.querySelector(".ea-topbar-bg")) {
+        topbar.insertBefore(topbarBackgroundEl(), topbar.firstChild);
+      }
 
-    var switchEl = topbar.querySelector(".ref-mode-switch");
+      var switchEl = topbar.querySelector(".ref-mode-switch");
+      if (switchEl && switchEl.style.display !== "none") {
+        switchEl.style.display = "none";
+        switchEl.setAttribute("aria-hidden", "true");
+      }
+
+      var role = getAuthRole();
+      var roleBadge = topbar.querySelector(".ea-role-badge");
+      if (role) {
+        var wantedText = role === "student" ? "Estudiante" : "Docente";
+        if (!roleBadge) {
+          roleBadge = document.createElement("span");
+          roleBadge.className = "ea-role-badge";
+          if (switchEl && switchEl.parentNode === topbar) {
+            topbar.insertBefore(roleBadge, switchEl);
+          } else {
+            topbar.appendChild(roleBadge);
+          }
+        }
+        if (roleBadge.classList.contains("is-student") !== (role === "student")) {
+          roleBadge.classList.toggle("is-student", role === "student");
+        }
+        if (roleBadge.textContent !== wantedText) {
+          roleBadge.textContent = wantedText;
+        }
+      } else if (roleBadge && roleBadge.parentNode) {
+        roleBadge.parentNode.removeChild(roleBadge);
+      }
+
+      enforceRoleIsolation();
 
     if (!topbar.querySelector(".ea-binational-pill")) {
       var pill = document.createElement("div");
@@ -697,9 +1074,19 @@
         "<span>Cerrar sesión</span>";
       logoutBtn.addEventListener("click", logoutToWelcome);
       topbar.appendChild(logoutBtn);
-    }
+      }
 
-    mountReinforcementDrill();
+      mountReinforcementDrill();
+      var reinfPage = document.querySelector(".sr-reinforcement-page");
+      if (reinfPage) {
+        var rp = reinfPage.querySelector(".sr-route-progress");
+        if (rp && rp !== reinfPage.lastElementChild) {
+          reinfPage.appendChild(rp);
+        }
+      }
+    } finally {
+      isUpdatingBanner = false;
+    }
   }
 
   function hoistedChileFlagHtml() {
@@ -767,14 +1154,14 @@
   function showWelcomeScreen() {
     if (document.querySelector(".ea-welcome-overlay")) return;
     try {
-      if (sessionStorage.getItem(WELCOME_STORAGE_KEY) === "1") return;
+      if (getAuthRole() && sessionStorage.getItem(WELCOME_STORAGE_KEY) === "1") return;
     } catch (_) {}
 
     var screen = document.createElement("div");
     screen.className = "ea-welcome-overlay";
     screen.setAttribute("role", "dialog");
     screen.setAttribute("aria-modal", "true");
-    screen.setAttribute("aria-label", "Bienvenida a EduAndes AI");
+    screen.setAttribute("aria-label", "Inicio de sesión en EduAndes AI");
     screen.innerHTML =
       '<div class="ea-welcome-stage">' +
         '<div class="ea-welcome-flag-slot ea-slot-cl">' +
@@ -786,10 +1173,23 @@
               binationalCrestSvg() +
               "<span>Encuentro Binacional Chile – Ecuador</span>" +
             "</div>" +
-            '<button type="button" class="ea-welcome-brand-btn" aria-label="Entrar a EduAndes AI">' +
-              '<span class="ea-welcome-title">EduAndes <b>AI</b></span>' +
-              '<span class="ea-welcome-enter-pill">Entrar <span aria-hidden="true">&#8594;</span></span>' +
-            "</button>" +
+            '<div class="ea-welcome-title">EduAndes <b>AI</b></div>' +
+            '<form class="ea-login-form" novalidate>' +
+              '<div class="ea-login-fields">' +
+                '<div class="ea-login-field">' +
+                  '<label for="ea-login-email">Correo institucional</label>' +
+                  '<input id="ea-login-email" class="ea-login-input" type="email" autocomplete="username" placeholder="correo@educhile.cl" required />' +
+                "</div>" +
+                '<div class="ea-login-field">' +
+                  '<label for="ea-login-password">Clave</label>' +
+                  '<input id="ea-login-password" class="ea-login-input" type="password" autocomplete="current-password" placeholder="••••••" required />' +
+                "</div>" +
+              "</div>" +
+              '<p class="ea-login-error" role="alert" aria-live="polite"></p>' +
+              '<button type="submit" class="ea-welcome-enter-pill ea-login-submit" aria-label="Entrar a EduAndes AI">' +
+                'Entrar <span aria-hidden="true">&#8594;</span>' +
+              "</button>" +
+            "</form>" +
             '<p class="ea-welcome-subtitle">ODS 4 · Educación de Calidad e Inclusiva con IA Verificada</p>' +
           "</div>" +
         "</main>" +
@@ -802,31 +1202,64 @@
         '<span class="ea-welcome-hack">Hackathon Chile – Ecuador 2026</span>' +
       "</footer>";
 
-    function enterSystem() {
+    var form = screen.querySelector(".ea-login-form");
+    var emailInput = screen.querySelector("#ea-login-email");
+    var passwordInput = screen.querySelector("#ea-login-password");
+    var errorEl = screen.querySelector(".ea-login-error");
+
+    function enterSystem(role) {
       try {
+        sessionStorage.setItem(AUTH_ROLE_KEY, role);
         sessionStorage.setItem(WELCOME_STORAGE_KEY, "1");
+        localStorage.setItem(VIEW_MODE_KEY, role);
       } catch (_) {}
+      switchMode(role);
+      window.location.hash = "#/";
+      ensureBannerButton();
       document.documentElement.classList.remove("ea-welcome-open");
       document.body.classList.remove("ea-welcome-open");
       screen.classList.add("is-leaving");
       setTimeout(function () {
         if (screen.parentNode) screen.parentNode.removeChild(screen);
       }, 280);
+      announceVisual(
+        role === "student"
+          ? "Sesión iniciada como Estudiante."
+          : "Sesión iniciada como Docente."
+      );
     }
 
-    screen.querySelector(".ea-welcome-brand-btn").addEventListener("click", enterSystem);
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var email = (emailInput.value || "").trim().toLowerCase();
+      var password = (passwordInput.value || "").trim();
+      var account = CREDENTIALS[email];
+      if (!account || account.password !== password) {
+        errorEl.textContent = "Correo o clave incorrectos.";
+        passwordInput.focus();
+        return;
+      }
+      errorEl.textContent = "";
+      enterSystem(account.role);
+    });
+
     document.documentElement.classList.add("ea-welcome-open");
     document.body.classList.add("ea-welcome-open");
     document.body.appendChild(screen);
+    setTimeout(function () {
+      if (emailInput) emailInput.focus();
+    }, 60);
   }
 
   var observer = new MutationObserver(ensureBannerButton);
   function init() {
     applyA11yState(loadA11yState());
+    enforceRoleIsolation();
     showWelcomeScreen();
     ensureBannerButton();
     observer.observe(document.body, { childList: true, subtree: true });
     window.addEventListener("hashchange", function () {
+      enforceRoleIsolation();
       setTimeout(mountReinforcementDrill, 120);
     });
   }

@@ -8,6 +8,7 @@ import logging
 from pathlib import Path
 import re
 from threading import Lock
+import time
 from typing import Annotated, Literal
 import unicodedata
 from uuid import UUID, uuid4, uuid5
@@ -132,7 +133,7 @@ class QuizInput(BaseModel):
 
 
 class PracticeDrillInput(BaseModel):
-    count: int = Field(default=10, ge=10, le=20)
+    count: int = Field(default=10, ge=1, le=20)
     question_type: Literal["multiple_choice", "open", "mixed"] = "multiple_choice"
 
 
@@ -414,44 +415,58 @@ class CourseService:
                             db.execute("UPDATE ec_quizzes SET payload=? WHERE id=? AND status='generating'", (dump(quiz), identifier))
                     except ValueError:
                         continue
-            for index in range(len(quiz["items"]), quiz["requested_count"]):
+            page_cursor = 0
+            max_attempts = max(quiz["requested_count"] * 4, len(pages) * 2)
+            attempts_done = 0
+            last_error: Exception | None = None
+            while len(quiz["items"]) < quiz["requested_count"] and attempts_done < max_attempts:
+                index = len(quiz["items"])
                 item_type = quiz["question_type"]
                 if item_type == "mixed":
                     if quiz["requested_count"] < 3:
                         item_type = "open" if index == quiz["requested_count"] - 1 else "multiple_choice"
                     else:
                         item_type = "open" if index % 3 == 2 else "multiple_choice"
-                page_index = (index * stride + generation_round * len(quiz["material_ids"])) % len(pages)
+                page_index = (index * stride + generation_round * len(quiz["material_ids"]) + page_cursor) % len(pages)
                 rotated = pages[page_index:] + pages[:page_index]
                 unused = [p for p in rotated if (p["material_id"], p["number"]) not in used_pages]
                 reused = [p for p in rotated if (p["material_id"], p["number"]) in used_pages]
-                candidates = (unused + reused)[: min(6, len(rotated))]
+                candidates = unused + reused
                 prev_questions = [item["question"] for item in quiz["items"]]
                 prev_answers = [item["answer"] for item in quiz["items"] if item.get("answer")]
-                for candidate_index, page in enumerate(candidates):
+                added = False
+                for page in candidates:
+                    if attempts_done >= max_attempts:
+                        break
+                    attempts_done += 1
                     try:
                         try:
                             generated = engine.generate_course_item(
-                                page, quiz["objective"], item_type, prev_questions, previous_answers=prev_answers, style_index=index
+                                page, quiz["objective"], item_type, prev_questions, previous_answers=prev_answers, style_index=index + page_cursor
                             )
                         except TypeError:
                             generated = engine.generate_course_item(page, quiz["objective"], item_type, prev_questions)
+                        generated.update(id=str(uuid4()), reviewed=False)
+                        with connect(self.db, write=True) as db:
+                            item = self.validate_item(db, generated, quiz["unit_id"], quiz["material_ids"], generated=True)
+                            if item["type"] != item_type:
+                                raise ValueError("La IA no respetó el tipo de pregunta solicitado.")
+                            if any(content_key(item["question"]) == content_key(old["question"]) for old in quiz["items"]):
+                                raise ValueError("La IA repitió una pregunta.")
+                            quiz["items"].append(item)
+                            if isinstance(item.get("citation"), dict):
+                                used_pages.add((item["citation"]["material_id"], item["citation"]["page_number"]))
+                            db.execute("UPDATE ec_quizzes SET payload=? WHERE id=? AND status='generating'", (dump(quiz), identifier))
+                        added = True
                         break
-                    except ValueError:
-                        if candidate_index == len(candidates) - 1:
-                            raise
-                        LOGGER.info("La actividad %s probará otra página para la pregunta %s", identifier, index + 1)
-                generated.update(id=str(uuid4()), reviewed=False)
-                with connect(self.db, write=True) as db:
-                    item = self.validate_item(db, generated, quiz["unit_id"], quiz["material_ids"], generated=True)
-                    if item["type"] != item_type:
-                        raise ValueError("La IA no respetó el tipo de pregunta solicitado. Reintenta la generación.")
-                    if any(content_key(item["question"]) == content_key(old["question"]) for old in quiz["items"]):
-                        raise ValueError("La IA repitió una pregunta. Reintenta para completar el lote.")
-                    quiz["items"].append(item)
-                    if isinstance(item.get("citation"), dict):
-                        used_pages.add((item["citation"]["material_id"], item["citation"]["page_number"]))
-                    db.execute("UPDATE ec_quizzes SET payload=? WHERE id=? AND status='generating'", (dump(quiz), identifier))
+                    except ValueError as err:
+                        last_error = err
+                        LOGGER.info("La actividad %s probará otra página para la pregunta %s (%s)", identifier, index + 1, err)
+                        continue
+                if not added:
+                    page_cursor += 1
+            if len(quiz["items"]) < quiz["requested_count"]:
+                raise last_error or ValueError("No se pudieron completar todas las preguntas solicitadas con el material disponible.")
             quiz.update(status="draft", error=None)
             with connect(self.db, write=True) as db:
                 db.execute("UPDATE ec_quizzes SET status='draft',payload=? WHERE id=?", (dump(quiz), identifier))
@@ -872,10 +887,60 @@ def build_router(service: CourseService):
         service.enqueue(service.generate_reinforcement, value["id"], value["generation_token"])
         return public_reinforcement(value)
 
+    @router.get("/reinforcements/{reinforcement_id}/failed-topics")
+    def get_reinforcement_failed_topics(reinforcement_id: UUID, student_id: UUID | None = None):
+        with connect(service.db) as db:
+            scope = str(student_id) if student_id else None
+            value = service.reinforcement(db, str(reinforcement_id), scope)
+            attempt = service.attempt(db, value["attempt_id"], scope)
+            unit = service.unit(db, attempt["unit_id"])
+            items = attempt.get("items") or []
+            failed = []
+            for item in items:
+                if item.get("correct") is False:
+                    failed.append({
+                        "id": item.get("id"),
+                        "topic": item.get("topic") or "Tema de la unidad",
+                        "question": item.get("question") or "",
+                        "type": item.get("type") or "multiple_choice",
+                        "options": list(item.get("options") or []),
+                        "correct_index": item.get("correct_index"),
+                        "student_response": item.get("response") or "",
+                        "correct_answer": item.get("answer") or "",
+                        "explanation": item.get("explanation") or "",
+                        "citation": item.get("citation"),
+                    })
+            correct_count = sum(1 for item in items if item.get("correct") is True)
+            return {
+                "reinforcement_id": value["id"],
+                "attempt_id": attempt["id"],
+                "unit_id": attempt["unit_id"],
+                "unit_title": unit.get("title") or "",
+                "total_items": len(items),
+                "correct_count": correct_count,
+                "failed_count": len(failed),
+                "failed_items": failed,
+            }
+
     @router.get("/reinforcements/{reinforcement_id}")
     def get_reinforcement(reinforcement_id: UUID, student_id: UUID | None = None):
+        scope = str(student_id) if student_id else None
         with connect(service.db) as db:
-            return public_reinforcement(service.reinforcement(db, str(reinforcement_id), str(student_id) if student_id else None))
+            value = service.reinforcement(db, str(reinforcement_id), scope)
+        if value.get("status") == "generating" and not value.get("response"):
+            try:
+                created = datetime.fromisoformat(value.get("created_at", ""))
+                age_sec = (datetime.now(timezone.utc) - created).total_seconds()
+            except Exception:
+                age_sec = 0
+            if age_sec > 90:
+                try:
+                    value = service.complete_source_review(
+                        value["id"], reason="generation_timeout", generation_token=value.get("generation_token")
+                    )
+                except Exception:
+                    pass
+        return public_reinforcement(value)
 
     @router.post("/reinforcements/{reinforcement_id}/response")
     def submit_reinforcement(reinforcement_id: UUID, request: ReinforcementInput, student_id: UUID | None = None):
@@ -922,7 +987,21 @@ def build_router(service: CourseService):
             if not material_ids:
                 raise HTTPException(422, "La unidad no tiene materiales disponibles para ampliar el refuerzo.")
             unit = service.unit(db, value["unit_id"])
-            pages = service.candidate_pages(db, {"objective": value.get("topic") or unit.get("objectives") or "", "material_ids": material_ids})
+            attempt = service.attempt(db, value["attempt_id"], scope)
+            failed_items = [it for it in (attempt.get("items") or []) if it.get("correct") is False]
+            failed_topics = ", ".join(dict.fromkeys(it["topic"] for it in failed_items if it.get("topic")))
+            drill_objective = failed_topics or value.get("topic") or unit.get("objectives") or ""
+            pages = service.candidate_pages(db, {"objective": drill_objective, "material_ids": material_ids})
+            failed_page_keys = {
+                (it["citation"]["material_id"], it["citation"]["page_number"])
+                for it in failed_items
+                if isinstance(it.get("citation"), dict)
+            }
+            if failed_page_keys:
+                pages = (
+                    [p for p in pages if (p["material_id"], p["number"]) in failed_page_keys]
+                    + [p for p in pages if (p["material_id"], p["number"]) not in failed_page_keys]
+                )
 
         engine = service.get_engine()
         same_type = isinstance(existing, dict) and existing.get("question_type") == request.question_type
@@ -953,40 +1032,68 @@ def build_router(service: CourseService):
                 items.append(validated)
                 if isinstance(validated.get("citation"), dict):
                     used_pages.add((validated["citation"]["material_id"], validated["citation"]["page_number"]))
-        for idx in range(len(items), request.count):
+        page_cursor = 0
+        max_attempts = max(request.count * 4, len(pages) * 2)
+        attempts_done = 0
+        while len(items) < request.count and attempts_done < max_attempts:
+            idx = len(items)
             drill_type = request.question_type
             if drill_type == "mixed":
                 drill_type = "open" if idx % 3 == 2 else "multiple_choice"
-            page_index = (idx * stride) % len(pages)
+            page_index = (idx * stride + page_cursor) % len(pages)
             rotated = pages[page_index:] + pages[:page_index]
             unused = [p for p in rotated if (p["material_id"], p["number"]) not in used_pages]
             reused = [p for p in rotated if (p["material_id"], p["number"]) in used_pages]
-            candidates = (unused + reused)[: min(6, len(rotated))]
+            candidates = unused + reused
             prev_q = [it["question"] for it in items]
             prev_a = [it["answer"] for it in items if it.get("answer")]
-            generated = None
-            for c_idx, page in enumerate(candidates):
+            added = False
+            for page in candidates:
+                if attempts_done >= max_attempts:
+                    break
+                attempts_done += 1
                 try:
                     try:
                         generated = engine.generate_course_item(
-                            page, value.get("topic") or unit.get("objectives") or "", drill_type, prev_q, previous_answers=prev_a, style_index=idx
+                            page, value.get("topic") or unit.get("objectives") or "", drill_type, prev_q, previous_answers=prev_a, style_index=idx + page_cursor
                         )
                     except TypeError:
                         generated = engine.generate_course_item(page, value.get("topic") or "", drill_type, prev_q)
+                    generated.update(id=str(uuid4()), reviewed=True)
+                    with connect(service.db) as db:
+                        validated = service.validate_item(db, generated, value["unit_id"], material_ids, generated=True)
+                    if any(content_key(validated["question"]) == content_key(old["question"]) for old in items):
+                        continue
+                    items.append(validated)
+                    if isinstance(validated.get("citation"), dict):
+                        used_pages.add((validated["citation"]["material_id"], validated["citation"]["page_number"]))
+                    added = True
                     break
                 except ValueError:
-                    if c_idx == len(candidates) - 1:
-                        break
-            if generated is None:
-                break
-            generated.update(id=str(uuid4()), reviewed=True)
+                    continue
+            if not added:
+                page_cursor += 1
+
+        if len(items) < request.count:
+            # Completa con preguntas ya verificadas de la unidad si faltaran tras agotar reintentos
             with connect(service.db) as db:
-                validated = service.validate_item(db, generated, value["unit_id"], material_ids, generated=True)
-            if any(content_key(validated["question"]) == content_key(old["question"]) for old in items):
-                continue
-            items.append(validated)
-            if isinstance(validated.get("citation"), dict):
-                used_pages.add((validated["citation"]["material_id"], validated["citation"]["page_number"]))
+                pub_rows = db.execute(
+                    "SELECT p.payload FROM ec_publications p JOIN ec_quizzes q ON q.id=p.quiz_id "
+                    "WHERE q.unit_id=? ORDER BY q.rowid DESC, p.version DESC",
+                    (value["unit_id"],),
+                ).fetchall()
+                for row in pub_rows:
+                    if len(items) >= request.count:
+                        break
+                    pub = json.loads(row["payload"])
+                    for q_item in pub.get("items") or []:
+                        if len(items) >= request.count:
+                            break
+                        if request.question_type != "mixed" and q_item.get("type") != request.question_type:
+                            continue
+                        if any(content_key(q_item.get("question", "")) == content_key(old["question"]) for old in items):
+                            continue
+                        items.append({**q_item, "id": str(uuid4()), "reviewed": True})
 
         if not items:
             raise HTTPException(502, "No se pudieron generar preguntas de práctica para este refuerzo.")

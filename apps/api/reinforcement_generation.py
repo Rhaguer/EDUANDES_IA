@@ -178,7 +178,7 @@ def _check(engine, scenario, question, target, page, seed):
             "tipo": target["type"], "alternativas": [{"id": i, "texto": options[index]} for i, index in enumerate(order)]}
     if target.get("application_choices"):
         data["relacion_a_practicar"] = target["citation"]["quote"]
-    value, metadata = _call(engine, CHECK, data, "reinforcement_check", creative=False, seed=seed, tokens=900)
+    value, metadata = _call(engine, CHECK, data, "reinforcement_check", creative=False, seed=seed, tokens=420)
     answers = value.get("respuestas_validas")
     evaluations = value.get("evaluaciones")
     if not isinstance(evaluations, list) or len(evaluations) != len(options):
@@ -280,9 +280,16 @@ def generate_reinforcement(engine, attempt: dict, page: dict) -> dict:
     rejected_scenarios = []
     new_choices = target["type"] == "multiple_choice" and engine.status().get("reinforcement_choices") == "generated"
     proposed_targets = []
-    for role in ("ejercicio", "ejemplo_de_apoyo"):
+    is_local_model = engine.status().get("mode") == "real"
+    roles = ("ejercicio",) if is_local_model else ("ejercicio", "ejemplo_de_apoyo")
+    max_ejercicio_retries = 2 if is_local_model else 3
+    budget_seconds = 75.0 if is_local_model else 180.0
+    for role in roles:
         last_error = "No se obtuvo un caso verificable."
-        for retry in range(3 if role == "ejercicio" else 1):
+        for retry in range(max_ejercicio_retries if role == "ejercicio" else 1):
+            if time.monotonic() - started > budget_seconds:
+                rejected.append({"role": role, "seed": 0, "reason": "Tiempo máximo de espera superado para el refuerzo."})
+                break
             use_new_choices = new_choices or (role == "ejercicio" and target["type"] == "multiple_choice" and retry >= 1)
             context, markers = _transfer_context(" ".join([x[0] for x in generated] + rejected_scenarios), prior)
             seed = uuid4().int % (2**31)
@@ -294,7 +301,7 @@ def generate_reinforcement(engine, attempt: dict, page: dict) -> dict:
                 task["correccion"] = last_error + ("" if use_new_choices else f" PROHIBIDO escribir literalmente '{target['answer']}' en el caso o en la pregunta.")
             try:
                 prompt = PROPOSE_CHOICES if use_new_choices else PROPOSE
-                value, metadata = _call(engine, prompt, task, "reinforcement_" + role, creative=True, seed=seed, tokens=650 if use_new_choices else 380)
+                value, metadata = _call(engine, prompt, task, "reinforcement_" + role, creative=True, seed=seed, tokens=340 if use_new_choices else 240)
                 proposed_target = _application_choices(value, target) if use_new_choices else target
                 scenario, question = _candidate(
                     value, target, excluded + [x[0] for x in generated],

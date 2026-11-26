@@ -12,6 +12,7 @@ from typing import Annotated
 from uuid import UUID, uuid4
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel, Field, StringConstraints, field_validator
 from pypdf import PdfReader
 from pypdf.errors import PyPdfError
@@ -268,6 +269,7 @@ def create_app(db_path: Path, adapter_dir: Path, *, engine=None) -> FastAPI:
             course_service.close()
 
     application = FastAPI(title="EduAndes AI", lifespan=lifespan)
+    application.add_middleware(GZipMiddleware, minimum_size=500)
     application.state.course_service = course_service
     application.include_router(build_router(course_service))
 

@@ -83,6 +83,10 @@ def connect(path: Path, *, write: bool = False):
     with closing(sqlite3.connect(path, timeout=15)) as database, database:
         database.row_factory = sqlite3.Row
         database.execute("PRAGMA foreign_keys = ON")
+        database.execute("PRAGMA busy_timeout = 15000")
+        database.execute("PRAGMA synchronous = NORMAL")
+        database.execute("PRAGMA temp_store = MEMORY")
+        database.execute("PRAGMA cache_size = -16000")
         if write:
             database.execute("BEGIN IMMEDIATE")
         yield database
@@ -91,4 +95,5 @@ def connect(path: Path, *, write: bool = False):
 def initialize(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with connect(path) as database:
+        database.execute("PRAGMA journal_mode = WAL")
         database.executescript(SCHEMA)

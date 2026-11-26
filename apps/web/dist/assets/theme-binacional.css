@@ -1662,3 +1662,348 @@ body.ea-a11y-contrast .text-link {
     animation: none;
   }
 }
+
+/* Ocultar selector manual Docente/Estudiante del banner (controlado por login de rol) */
+.ref-mode-switch {
+  display: none !important;
+}
+
+/* Insignia de rol activo en el banner superior */
+.ea-role-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  background: rgba(255, 255, 255, 0.9);
+  color: #08245c;
+  border: 1px solid rgba(0, 57, 166, 0.22);
+  box-shadow: 0 2px 6px rgba(8, 36, 92, 0.08);
+  white-space: nowrap;
+}
+
+.ea-role-badge.is-student {
+  color: #034ea2;
+  border-color: rgba(3, 78, 162, 0.28);
+}
+
+/* Formulario de inicio de sesión en portada (entre EduAndes AI y Entrar) */
+.ea-login-form {
+  width: min(100%, 360px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin: 4px auto 0;
+}
+
+.ea-login-fields {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: left;
+}
+
+.ea-login-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ea-login-field label {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #163063;
+  letter-spacing: 0.01em;
+}
+
+.ea-login-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1.5px solid rgba(0, 57, 166, 0.24);
+  background: rgba(255, 255, 255, 0.96);
+  color: #08245c;
+  font-family: inherit;
+  font-size: 14.5px;
+  font-weight: 500;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.ea-login-input:focus {
+  outline: none;
+  border-color: #0039a6;
+  box-shadow: 0 0 0 3px rgba(0, 57, 166, 0.16);
+}
+
+.ea-login-error {
+  min-height: 18px;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: #b42318;
+  text-align: center;
+}
+
+.ea-login-submit {
+  border: 0;
+  cursor: pointer;
+  margin-top: 2px;
+}
+
+.ea-login-submit:hover {
+  background: linear-gradient(115deg, #002d85, #003f8a);
+  box-shadow: 0 14px 28px rgba(0, 57, 166, 0.32);
+  transform: translateY(-2px);
+}
+
+.ea-login-submit:focus-visible {
+  outline: 3px solid #0039a6;
+  outline-offset: 4px;
+}
+
+/* Tarjeta de refuerzo por preguntas falladas */
+.ea-failed-summary {
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(0, 57, 166, 0.06);
+  color: #08245c;
+  font-size: 14px;
+}
+
+.ea-failed-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ea-failed-item {
+  border: 1px solid rgba(11, 40, 94, 0.14);
+  border-radius: 14px;
+  padding: 16px;
+  background: #ffffff;
+  transition: border-color 0.16s ease, background 0.16s ease;
+}
+
+.ea-failed-item.is-done {
+  border-color: rgba(18, 128, 72, 0.35);
+  background: rgba(18, 128, 72, 0.04);
+}
+
+.ea-failed-item-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.ea-failed-num {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #0039a6;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.ea-failed-status {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(213, 43, 30, 0.09);
+  color: #b42318;
+}
+
+.ea-failed-item.is-done .ea-failed-status {
+  background: rgba(18, 128, 72, 0.14);
+  color: #128048;
+}
+
+.ea-failed-q {
+  margin: 0 0 10px;
+  font-size: 15.5px;
+  font-weight: 700;
+  color: #0b224d;
+}
+
+.ea-failed-compare {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+  font-size: 13.5px;
+}
+
+.ea-failed-yours {
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(213, 43, 30, 0.06);
+  color: #7a1c15;
+}
+
+.ea-failed-ref {
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(18, 128, 72, 0.08);
+  color: #0e5a33;
+}
+
+.ea-failed-exp {
+  margin: 0 0 10px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #2c3e5e;
+}
+
+.ea-failed-cite {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-left: 3px solid #0039a6;
+  background: rgba(0, 57, 166, 0.04);
+  border-radius: 0 8px 8px 0;
+  font-size: 13px;
+  color: #1f3356;
+}
+
+.ea-failed-cite small {
+  display: block;
+  font-weight: 700;
+  margin-bottom: 3px;
+}
+
+.ea-failed-practice {
+  margin: 10px 0 12px;
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(11, 40, 94, 0.03);
+}
+
+.ea-failed-practice-q {
+  margin: 0 0 8px;
+  font-size: 13.5px;
+}
+
+.ea-failed-opts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 8px;
+}
+
+.ea-failed-opt-btn {
+  text-align: left;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 57, 166, 0.2);
+  background: #ffffff;
+  color: #08245c;
+  font-size: 13.5px;
+  cursor: pointer;
+}
+
+.ea-failed-opt-btn:hover {
+  border-color: #0039a6;
+  background: rgba(0, 57, 166, 0.05);
+}
+
+.ea-failed-opt-msg {
+  margin: 8px 0 0;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.ea-failed-opt-msg.is-ok {
+  color: #128048;
+}
+
+.ea-failed-opt-msg.is-err {
+  color: #b42318;
+}
+
+.ea-failed-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ea-failed-nav {
+  display: flex;
+  gap: 8px;
+}
+
+.ea-failed-summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.ea-failed-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ea-failed-pill {
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 57, 166, 0.25);
+  background: #ffffff;
+  color: #08245c;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ea-failed-pill.is-active {
+  background: #0039a6;
+  color: #ffffff;
+  border-color: #0039a6;
+}
+
+.ea-failed-pill.is-done {
+  border-color: #128048;
+  color: #128048;
+}
+
+.ea-failed-pill.is-active.is-done {
+  background: #128048;
+  color: #ffffff;
+}
+
+.ea-failed-details {
+  margin: 0 0 10px;
+  font-size: 13.5px;
+}
+
+.ea-failed-details summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: #0039a6;
+  margin-bottom: 6px;
+}
+
+/* Ocultar la tarjeta antigua de 1 sola pregunta cuando el refuerzo muestra las N preguntas falladas */
+.sr-reinforcement-page.ea-has-failed-topics .sr-why,
+.sr-reinforcement-page.ea-has-failed-topics .sr-format-row,
+.sr-reinforcement-page.ea-has-failed-topics .sr-stepper,
+.sr-reinforcement-page.ea-has-failed-topics .sr-card:not(.ea-failed-card):not(.ea-drill-card):not(.sr-route-progress) {
+  display: none !important;
+}
+
+.sr-reinforcement-page.ea-has-failed-topics .sr-support-grid,
+.sr-reinforcement-page.ea-has-failed-topics .sr-layout,
+.sr-reinforcement-page.ea-has-failed-topics .sr-support-side {
+  display: block !important;
+  width: 100%;
+  max-width: 100%;
+}

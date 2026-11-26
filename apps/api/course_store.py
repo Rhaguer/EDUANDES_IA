@@ -64,6 +64,7 @@ CREATE INDEX IF NOT EXISTS ec_attempt_unit ON ec_attempts(unit_id, submitted_at)
 def initialize(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with connect(path) as database:
+        database.execute("PRAGMA journal_mode = WAL")
         database.executescript(SCHEMA)
         # Serialize additive migrations when more than one worker starts at once.
         database.execute("BEGIN IMMEDIATE")
