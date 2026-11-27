@@ -1,4 +1,4 @@
-/* Consola de Administración EduAndes AI */
+/* Consola de Administración, Login Responsivo y Avisos Globales - EduAndes AI */
 .ea-admin-nav-btn {
   border: 1px solid #0039a6;
   background: linear-gradient(135deg, #0039a6, #034ea2);
@@ -15,6 +15,51 @@
   filter: brightness(1.08);
 }
 
+/* Banner global y modo mantenimiento */
+.ea-global-banner {
+  position: relative;
+  z-index: 2100;
+  width: 100%;
+  box-sizing: border-box;
+  background: linear-gradient(90deg, #002875, #0039a6 70%, #034ea2);
+  color: #fff;
+  text-align: center;
+  padding: 8px 16px;
+  font-size: 0.86rem;
+  font-weight: 600;
+  border-bottom: 2px solid #ffd100;
+}
+
+.ea-maint-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9800;
+  background: rgba(8, 22, 56, 0.84);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.ea-maint-card {
+  width: 100%;
+  max-width: 440px;
+  background: #fff;
+  border-radius: 16px;
+  border-top: 4px solid #d52b1e;
+  padding: 24px;
+  text-align: center;
+  color: #0b224d;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+}
+.ea-maint-card h2 {
+  margin: 0 0 8px;
+}
+.ea-maint-card p {
+  margin: 0 0 18px;
+  color: #556582;
+}
+
+/* Consola Admin full-screen */
 #ea-admin-console {
   position: fixed;
   inset: 0;
@@ -30,19 +75,21 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 12px 22px;
+  gap: 10px;
+  padding: 12px 20px;
   background: linear-gradient(90deg, #002875 0%, #0039a6 62%, #d52b1e 100%);
   color: #fff;
   box-shadow: 0 4px 16px rgba(11, 34, 77, 0.18);
+  flex-wrap: wrap;
 }
 
 .ea-adm-brand {
   display: flex;
   align-items: center;
-  gap: 10px;
-  font-size: 1.12rem;
+  gap: 8px;
+  font-size: 1.08rem;
   font-weight: 700;
+  flex-wrap: wrap;
 }
 
 .ea-adm-pill {
@@ -51,7 +98,7 @@
   color: #ffd100;
   border-radius: 999px;
   padding: 2px 10px;
-  font-size: 0.78rem;
+  font-size: 0.76rem;
   font-weight: 700;
 }
 
@@ -62,32 +109,22 @@
   flex-wrap: wrap;
 }
 
-.ea-adm-role-select {
-  background: rgba(255, 255, 255, 0.16);
-  color: #fff;
-  border: 1px solid rgba(255, 255, 255, 0.35);
-  border-radius: 8px;
-  padding: 6px 10px;
-  font-size: 0.85rem;
-  font-weight: 600;
-}
-.ea-adm-role-select option {
-  color: #0b224d;
-  background: #fff;
-}
-
 .ea-adm-top-btn {
   background: rgba(255, 255, 255, 0.16);
   color: #fff;
   border: 1px solid rgba(255, 255, 255, 0.35);
   border-radius: 8px;
   padding: 6px 12px;
-  font-size: 0.85rem;
+  font-size: 0.84rem;
   font-weight: 600;
   cursor: pointer;
 }
 .ea-adm-top-btn:hover {
   background: rgba(255, 255, 255, 0.28);
+}
+.ea-adm-top-btn.is-logout {
+  background: rgba(213, 43, 30, 0.78);
+  border-color: rgba(255, 255, 255, 0.5);
 }
 
 .ea-adm-shell {
@@ -98,6 +135,7 @@
 
 .ea-adm-sidebar {
   width: 270px;
+  flex-shrink: 0;
   background: #ffffff;
   border-right: 1px solid #dde4f2;
   padding: 14px 10px;
@@ -136,7 +174,8 @@
 
 .ea-adm-main {
   flex: 1;
-  padding: 20px 24px 36px;
+  min-width: 0;
+  padding: 20px 24px 40px;
   overflow-y: auto;
 }
 
@@ -150,7 +189,7 @@
 }
 .ea-adm-header h2 {
   margin: 0 0 4px;
-  font-size: 1.35rem;
+  font-size: 1.32rem;
   color: #0b224d;
 }
 .ea-adm-header p {
@@ -161,7 +200,7 @@
 
 .ea-adm-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
   gap: 14px;
   margin-bottom: 16px;
 }
@@ -182,6 +221,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .ea-adm-kpi {
@@ -196,7 +236,7 @@
   font-weight: 600;
 }
 .ea-adm-kpi-value {
-  font-size: 1.55rem;
+  font-size: 1.48rem;
   font-weight: 800;
   color: #0039a6;
   margin: 4px 0 2px;
@@ -207,12 +247,15 @@
 }
 
 .ea-adm-table-wrap {
+  width: 100%;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 .ea-adm-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.88rem;
+  min-width: 560px;
 }
 .ea-adm-table th,
 .ea-adm-table td {
@@ -254,10 +297,14 @@
   background: #fff;
   color: #0b224d;
   border-radius: 8px;
-  padding: 6px 12px;
+  padding: 7px 12px;
   font-size: 0.84rem;
   font-weight: 600;
   cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .ea-adm-btn:hover {
   background: #f3f6fc;
@@ -282,7 +329,7 @@
 
 .ea-adm-form-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 12px;
 }
 
@@ -300,10 +347,12 @@
 .ea-adm-field input,
 .ea-adm-field select,
 .ea-adm-field textarea {
+  width: 100%;
+  box-sizing: border-box;
   border: 1px solid #cfd9ee;
   border-radius: 8px;
   padding: 8px 10px;
-  font-size: 0.88rem;
+  font-size: 0.9rem;
   color: #0b224d;
   background: #fff;
 }
@@ -324,7 +373,8 @@
   position: fixed;
   bottom: 20px;
   right: 20px;
-  z-index: 9900;
+  z-index: 9950;
+  max-width: calc(100vw - 40px);
   background: #0b224d;
   color: #fff;
   padding: 10px 16px;
@@ -340,24 +390,7 @@
   flex-wrap: wrap;
 }
 
-@media (max-width: 860px) {
-  .ea-adm-shell {
-    flex-direction: column;
-  }
-  .ea-adm-sidebar {
-    width: 100%;
-    flex-direction: row;
-    overflow-x: auto;
-    border-right: none;
-    border-bottom: 1px solid #dde4f2;
-  }
-  .ea-adm-nav-item {
-    white-space: nowrap;
-    width: auto;
-  }
-}
-
-/* Estilo tarjeta de login moderna */
+/* Tarjeta de login moderna y responsiva */
 .ea-login-card-modern {
   width: 100%;
   max-width: 420px !important;
@@ -365,8 +398,8 @@
   border: 1px solid #d7e2f7 !important;
   border-top: 4px solid #0039a6 !important;
   border-radius: 16px !important;
-  box-shadow: 0 20px 50px rgba(8, 22, 56, 0.32) !important;
-  padding: 22px 24px !important;
+  box-shadow: 0 20px 50px rgba(8, 22, 56, 0.34) !important;
+  padding: 24px !important;
   text-align: left !important;
   box-sizing: border-box;
 }
@@ -396,8 +429,8 @@
   box-sizing: border-box;
   border: 1.5px solid #c5d5f2;
   border-radius: 9px;
-  padding: 8px 10px;
-  font-size: 13.5px;
+  padding: 9px 11px;
+  font-size: 15px;
   color: #0b224d;
   background: #ffffff;
 }
@@ -407,8 +440,8 @@
   background: #0039a6;
   color: #ffffff;
   border-radius: 9px;
-  padding: 9px 14px;
-  font-size: 14px;
+  padding: 10px 14px;
+  font-size: 14.5px;
   font-weight: 700;
   cursor: pointer;
   margin-top: 4px;
@@ -416,32 +449,72 @@
 .ea-login-submit-btn:hover {
   background: #002875;
 }
-.ea-login-demo-box {
+.ea-login-submit-btn:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+.ea-login-sec-badge {
   margin-top: 14px;
-  padding-top: 12px;
+  padding-top: 10px;
   border-top: 1px solid #e4ebf8;
-}
-.ea-login-demo-label {
-  display: block;
   font-size: 12px;
-  color: #4a5a78;
-  margin-bottom: 8px;
+  color: #0f6848;
+  font-weight: 600;
+  text-align: center;
 }
-.ea-login-demo-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
+
+/* Responsividad Tablet y Móvil */
+@media (max-width: 900px) {
+  .ea-adm-shell {
+    flex-direction: column;
+  }
+  .ea-adm-sidebar {
+    width: 100%;
+    flex-direction: row;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border-right: none;
+    border-bottom: 1px solid #dde4f2;
+    padding: 8px 10px;
+    gap: 6px;
+  }
+  .ea-adm-nav-item {
+    white-space: nowrap;
+    width: auto;
+    flex-shrink: 0;
+    padding: 8px 12px;
+    font-size: 0.84rem;
+  }
+  .ea-adm-main {
+    padding: 14px 14px 32px;
+  }
+  .ea-adm-topbar {
+    padding: 10px 14px;
+  }
 }
-.ea-login-demo-btn {
-  border: 1.5px solid #f3cf4d;
-  background: #fff8db;
-  color: #785200;
-  border-radius: 9px;
-  padding: 6px 8px;
-  font-size: 13px;
-  font-weight: 700;
-  cursor: pointer;
-}
-.ea-login-demo-btn:hover {
-  background: #ffefad;
+
+@media (max-width: 540px) {
+  .ea-adm-brand {
+    font-size: 0.96rem;
+  }
+  .ea-adm-top-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+  .ea-adm-grid,
+  .ea-adm-form-grid {
+    grid-template-columns: 1fr;
+  }
+  .ea-adm-field input,
+  .ea-adm-field select,
+  .ea-adm-field textarea,
+  .ea-login-card-modern .ea-login-input {
+    font-size: 16px;
+  }
+  .ea-login-card-modern {
+    padding: 18px 16px !important;
+  }
+  .ea-welcome-flag-slot {
+    display: none !important;
+  }
 }

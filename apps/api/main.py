@@ -11,8 +11,9 @@ from threading import Lock
 from typing import Annotated
 from uuid import UUID, uuid4
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, StringConstraints, field_validator
 from pypdf import PdfReader
 from pypdf.errors import PyPdfError
@@ -20,6 +21,7 @@ from pypdf.errors import PyPdfError
 from .store import ATTEMPTS, PRACTICES, REVIEWS, connect, initialize
 from .courses import CourseService, build_router
 from .admin_panel import build_admin_router, initialize_admin
+from .security_auth import build_auth_router, get_session_user, initialize_auth, is_https_request
 
 
 MAX_CONTEXT = 50_000
@@ -264,17 +266,90 @@ def create_app(db_path: Path, adapter_dir: Path, *, engine=None) -> FastAPI:
     async def lifespan(_: FastAPI):
         initialize(db_path)
         course_service.initialize()
+        initialize_auth(db_path)
         initialize_admin(db_path)
         try:
             yield
         finally:
             course_service.close()
 
-    application = FastAPI(title="EduAndes AI", lifespan=lifespan)
+    application = FastAPI(title="EduAndes AI", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     application.add_middleware(GZipMiddleware, minimum_size=500)
+
+    def _is_maintenance_on() -> bool:
+        try:
+            with connect(db_path) as database:
+                row = database.execute("SELECT value FROM admin_kv WHERE key = 'site_config'").fetchone()
+                if row:
+                    return bool(json.loads(row["value"]).get("maintenance_mode"))
+        except Exception:
+            pass
+        return False
+
+    @application.middleware("http")
+    async def security_and_auth_middleware(request: Request, call_next):
+        path = request.url.path
+        method = request.method.upper()
+
+        # Protección CSRF por Origin en peticiones mutantes a /api/*
+        if path.startswith("/api/") and method in {"POST", "PUT", "PATCH", "DELETE"}:
+            origin = request.headers.get("origin")
+            host = request.headers.get("host")
+            if origin and host:
+                allowed = {f"https://{host}", f"http://{host}"}
+                if origin.rstrip("/") not in allowed:
+                    return JSONResponse({"detail": "Origen no autorizado (CSRF)."}, status_code=403)
+
+        # Control de acceso y modo mantenimiento para /api/*
+        public_api = path in {"/api/health", "/api/auth/login", "/api/auth/logout", "/api/auth/me"}
+        if path.startswith("/api/") and not public_api:
+            user = get_session_user(db_path, request)
+            if not user:
+                return JSONResponse({"detail": "Sesión requerida."}, status_code=401)
+            if path.startswith("/api/admin/") and user["role"] != "Administrador":
+                return JSONResponse({"detail": "Requiere rol Administrador."}, status_code=403)
+            if user["role"] != "Administrador" and _is_maintenance_on():
+                return JSONResponse({"detail": "Plataforma en modo mantenimiento.", "maintenance": True}, status_code=503)
+            # Restringir acciones exclusivas de docente/admin para estudiantes
+            if user["role"] == "Estudiante" and method in {"POST", "PUT", "PATCH", "DELETE"}:
+                allowed_student_prefixes = ("/api/quiz-attempts", "/api/reinforcements", "/api/attempts", "/api/auth/")
+                allowed_student_suffixes = ("/attempts", "/submit", "/reinforcement", "/explanation")
+                if not (path.startswith(allowed_student_prefixes) or path.endswith(allowed_student_suffixes)):
+                    return JSONResponse({"detail": "Acción no permitida para el rol Estudiante."}, status_code=403)
+
+        response = await call_next(request)
+
+        # Cabeceras de seguridad OWASP
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=()"
+        response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data: blob:; "
+            "font-src 'self' data:; "
+            "connect-src 'self'; "
+            "frame-ancestors 'none'; "
+            "base-uri 'self'; "
+            "form-action 'self'"
+        )
+        if is_https_request(request):
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        if path.startswith("/api/"):
+            response.headers["Cache-Control"] = "no-store"
+        return response
+
     application.state.course_service = course_service
+    application.include_router(build_auth_router(db_path))
     application.include_router(build_router(course_service))
     application.include_router(build_admin_router(db_path))
+
+    @application.get("/api/health")
+    def public_health():
+        return {"status": "ok"}
 
     @application.get("/api/engine/status")
     def light_status():

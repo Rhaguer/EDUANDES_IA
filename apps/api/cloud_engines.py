@@ -173,6 +173,17 @@ class BedrockEngine(_CloudEngineBase):
         return "".join(block.get("text", "") for block in blocks if isinstance(block, dict)).strip()
 
 
+_RUT_DNI_RE = re.compile(r"\b(?:\d{1,2}\.?\d{3}\.?\d{3}-[\dkK]|\d{10})\b")
+_EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
+
+
+def _scrub_pii(text: str) -> str:
+    """Elimina RUT chileno, cédula ecuatoriana (10 dígitos) y correos antes de enviar a APIs externas."""
+    text = _RUT_DNI_RE.sub("[ID-ANONIMIZADO]", text)
+    text = _EMAIL_RE.sub("[CORREO-ANONIMIZADO]", text)
+    return text
+
+
 class OpenAICompatibleEngine(_CloudEngineBase):
     """Zero-dependency HTTP client for OpenAI-compatible endpoints (Groq, Gemini OpenAI compat, OpenAI)."""
 
@@ -207,11 +218,12 @@ class OpenAICompatibleEngine(_CloudEngineBase):
     def course_completion(self, instructions: str, content: str, *, creative: bool, seed: int, tokens: int) -> str:
         _reject_chat_markers(instructions)
         _reject_chat_markers(content)
+        safe_content = _scrub_pii(content)
         payload = {
             "model": self.model,
             "messages": [
                 {"role": "system", "content": instructions},
-                {"role": "user", "content": content},
+                {"role": "user", "content": safe_content},
             ],
             "max_tokens": int(tokens),
             "temperature": 0.65 if creative else 0.0,
@@ -229,6 +241,9 @@ class OpenAICompatibleEngine(_CloudEngineBase):
                     timeout=60.0,
                 )
                 if response.status_code == 429 and attempt < 4:
+                    lower_body = response.text.lower()
+                    if "billing_not_active" in lower_body or "insufficient_quota" in lower_body:
+                        response.raise_for_status()
                     retry_after = response.headers.get("retry-after")
                     wait_s = float(retry_after) if retry_after and retry_after.replace(".", "", 1).isdigit() else 0.0
                     if wait_s <= 0:

@@ -8,5 +8,7 @@ __pycache__/
 *.sqlite3-journal
 artifacts/course-generation/
 data/raw/
-.env
+data/educore-materials/
+data/backups/
 logs/
+.env

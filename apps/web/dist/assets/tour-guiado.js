@@ -80,12 +80,8 @@
   var WELCOME_STORAGE_KEY = "eduandes.welcome.entered";
   var AUTH_ROLE_KEY = "eduandes.auth.role";
   var AUTH_EMAIL_KEY = "eduandes.auth.email";
+  var AUTH_IS_ADMIN_KEY = "eduandes.auth.is_admin";
   var VIEW_MODE_KEY = "educore.view-mode";
-  var CREDENTIALS = {
-    "administrador@ecuachile.cl": { password: "123456", role: "teacher", label: "Administrador" },
-    "docente@ecuachile.cl": { password: "123456", role: "teacher", label: "Docente" },
-    "estudiante@ecuachile.cl": { password: "123456", role: "student", label: "Estudiante" },
-  };
   var TEACHER_ONLY_HASHES = [
     "#/asignaturas",
     "#/curso",
@@ -965,13 +961,19 @@
       sessionStorage.removeItem(WELCOME_STORAGE_KEY);
       sessionStorage.removeItem(AUTH_ROLE_KEY);
       sessionStorage.removeItem(AUTH_EMAIL_KEY);
+      sessionStorage.removeItem(AUTH_IS_ADMIN_KEY);
+      sessionStorage.removeItem("eduandes.admin.view");
       localStorage.removeItem("educore.student-id");
     } catch (_) {}
     window.dispatchEvent(new CustomEvent("eduandes-auth-changed", { detail: { email: null, role: null } }));
-    window.location.hash = "#/";
-    showWelcomeScreen();
-    announceVisual("Sesión cerrada. Regresando al inicio de sesión de EduAndes AI.");
+    fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" })
+      .catch(function () {})
+      .finally(function () {
+        window.location.hash = "#/";
+        window.location.reload();
+      });
   }
+  window.__eduandesLogout = logoutToWelcome;
 
   var isUpdatingBanner = false;
 
@@ -994,8 +996,11 @@
 
       var role = getAuthRole();
       var authEmail = "";
-      try { authEmail = sessionStorage.getItem(AUTH_EMAIL_KEY) || ""; } catch (_) {}
-      var isAdmin = authEmail === "administrador@ecuachile.cl";
+      var isAdmin = false;
+      try {
+        authEmail = sessionStorage.getItem(AUTH_EMAIL_KEY) || "";
+        isAdmin = sessionStorage.getItem(AUTH_IS_ADMIN_KEY) === "1";
+      } catch (_) {}
       var roleBadge = topbar.querySelector(".ea-role-badge");
       if (role) {
         var wantedText = isAdmin ? "Administrador" : (role === "student" ? "Estudiante" : "Docente");
@@ -1209,13 +1214,8 @@
                 "Ingresar" +
               "</button>" +
             "</form>" +
-            '<div class="ea-login-demo-box">' +
-              '<small class="ea-login-demo-label">Acceso rápido (Modo Demo)</small>' +
-              '<div class="ea-login-demo-grid">' +
-                '<button type="button" class="ea-login-demo-btn" data-demo-email="administrador@ecuachile.cl">Admin</button>' +
-                '<button type="button" class="ea-login-demo-btn" data-demo-email="docente@ecuachile.cl">Docente</button>' +
-                '<button type="button" class="ea-login-demo-btn" data-demo-email="estudiante@ecuachile.cl">Estudiante</button>' +
-              "</div>" +
+            '<div class="ea-login-sec-badge">' +
+              '<span>&#128274; Autenticación segura Argon2id · Sesión cifrada HttpOnly</span>' +
             "</div>" +
           "</div>" +
         "</main>" +
@@ -1229,54 +1229,55 @@
     var passwordInput = screen.querySelector("#ea-login-password");
     var errorEl = screen.querySelector(".ea-login-error");
     var submitBtn = screen.querySelector(".ea-login-submit-btn");
-    screen.querySelectorAll(".ea-login-demo-btn").forEach(function (demoBtn) {
-      demoBtn.addEventListener("click", function () {
-        emailInput.value = demoBtn.getAttribute("data-demo-email") || "";
-        passwordInput.value = "123456";
-        errorEl.textContent = "";
-        if (submitBtn) submitBtn.focus();
-      });
-    });
-
-    function enterSystem(role, email) {
-      try {
-        sessionStorage.setItem(AUTH_ROLE_KEY, role);
-        sessionStorage.setItem(AUTH_EMAIL_KEY, email || "");
-        sessionStorage.setItem("eduandes.admin.view", email === "administrador@ecuachile.cl" ? "1" : "0");
-        sessionStorage.setItem(WELCOME_STORAGE_KEY, "1");
-        localStorage.setItem(VIEW_MODE_KEY, role);
-      } catch (_) {}
-      switchMode(role);
-      window.location.hash = email === "administrador@ecuachile.cl" ? "#/admin" : "#/";
-      ensureBannerButton();
-      document.documentElement.classList.remove("ea-welcome-open");
-      document.body.classList.remove("ea-welcome-open");
-      screen.classList.add("is-leaving");
-      setTimeout(function () {
-        if (screen.parentNode) screen.parentNode.removeChild(screen);
-      }, 280);
-      window.dispatchEvent(new CustomEvent("eduandes-auth-changed", { detail: { email: email || "", role: role } }));
-      announceVisual(
-        email === "administrador@ecuachile.cl"
-          ? "Sesión iniciada como Administrador."
-          : (role === "student"
-            ? "Sesión iniciada como Estudiante."
-            : "Sesión iniciada como Docente.")
-      );
-    }
 
     form.addEventListener("submit", function (e) {
       e.preventDefault();
       var email = (emailInput.value || "").trim().toLowerCase();
-      var password = (passwordInput.value || "").trim();
-      var account = CREDENTIALS[email];
-      if (!account || account.password !== password) {
-        errorEl.textContent = "Correo o clave incorrectos.";
-        passwordInput.focus();
+      var password = passwordInput.value || "";
+      if (!email || !password) {
+        errorEl.textContent = "Completa tu correo y contraseña.";
         return;
       }
       errorEl.textContent = "";
-      enterSystem(account.role, email);
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Verificando...";
+      }
+      fetch("/api/auth/login", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email, password: password }),
+      })
+        .then(function (res) {
+          return res.json().catch(function () { return {}; }).then(function (data) {
+            if (!res.ok) throw new Error(data.detail || "Correo o contraseña incorrectos.");
+            return data;
+          });
+        })
+        .then(function (data) {
+          var u = data.user || {};
+          var isAdm = u.role === "Administrador";
+          var viewRole = u.view_role === "student" ? "student" : "teacher";
+          try {
+            sessionStorage.setItem(AUTH_ROLE_KEY, viewRole);
+            sessionStorage.setItem(AUTH_EMAIL_KEY, u.email || email);
+            sessionStorage.setItem(AUTH_IS_ADMIN_KEY, isAdm ? "1" : "0");
+            sessionStorage.setItem("eduandes.admin.view", isAdm ? "1" : "0");
+            sessionStorage.setItem(WELCOME_STORAGE_KEY, "1");
+            localStorage.setItem(VIEW_MODE_KEY, viewRole);
+          } catch (_) {}
+          window.location.hash = isAdm ? "#/admin" : "#/";
+          window.location.reload();
+        })
+        .catch(function (err) {
+          if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = "Ingresar";
+          }
+          errorEl.textContent = err && err.message ? err.message : "No se pudo iniciar sesión.";
+          passwordInput.focus();
+        });
     });
 
     document.documentElement.classList.add("ea-welcome-open");
@@ -1287,12 +1288,78 @@
     }, 60);
   }
 
+  function renderGlobalSiteNotices(site, isAdm) {
+    var oldBanner = document.getElementById("ea-global-banner");
+    if (oldBanner) oldBanner.remove();
+    var oldMaint = document.getElementById("ea-maintenance-overlay");
+    if (oldMaint) oldMaint.remove();
+    if (!site) return;
+
+    if (site.maintenance_mode && !isAdm) {
+      var maint = document.createElement("div");
+      maint.id = "ea-maintenance-overlay";
+      maint.className = "ea-maint-overlay";
+      maint.innerHTML =
+        '<div class="ea-maint-card">' +
+          "<h2>Plataforma en mantenimiento</h2>" +
+          "<p>EduAndes AI está realizando tareas programadas de actualización. Vuelve a intentar en unos minutos.</p>" +
+          '<button type="button" class="ea-login-submit-btn" id="ea-maint-logout">Cerrar sesión</button>' +
+        "</div>";
+      document.body.appendChild(maint);
+      var btn = maint.querySelector("#ea-maint-logout");
+      if (btn) btn.addEventListener("click", logoutToWelcome);
+      return;
+    }
+
+    if (site.banner_active && site.banner_text) {
+      var banner = document.createElement("div");
+      banner.id = "ea-global-banner";
+      banner.className = "ea-global-banner";
+      banner.setAttribute("role", "status");
+      banner.textContent = site.banner_text;
+      document.body.insertBefore(banner, document.body.firstChild);
+    }
+  }
+
   var observer = new MutationObserver(ensureBannerButton);
   function init() {
     applyA11yState(loadA11yState());
-    enforceRoleIsolation();
-    showWelcomeScreen();
-    ensureBannerButton();
+    fetch("/api/auth/me", { credentials: "same-origin" })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data && data.authenticated && data.user) {
+          var u = data.user;
+          var isAdm = u.role === "Administrador";
+          var viewRole = u.view_role === "student" ? "student" : "teacher";
+          try {
+            sessionStorage.setItem(AUTH_ROLE_KEY, viewRole);
+            sessionStorage.setItem(AUTH_EMAIL_KEY, u.email || "");
+            sessionStorage.setItem(AUTH_IS_ADMIN_KEY, isAdm ? "1" : "0");
+            sessionStorage.setItem(WELCOME_STORAGE_KEY, "1");
+            localStorage.setItem(VIEW_MODE_KEY, viewRole);
+            if (isAdm && sessionStorage.getItem("eduandes.admin.view") === null) {
+              sessionStorage.setItem("eduandes.admin.view", "1");
+            }
+          } catch (_) {}
+          enforceRoleIsolation();
+          ensureBannerButton();
+          renderGlobalSiteNotices(data.site, isAdm);
+          window.dispatchEvent(new CustomEvent("eduandes-auth-changed", { detail: { email: u.email, role: viewRole, isAdmin: isAdm } }));
+        } else {
+          try {
+            sessionStorage.removeItem(WELCOME_STORAGE_KEY);
+            sessionStorage.removeItem(AUTH_ROLE_KEY);
+            sessionStorage.removeItem(AUTH_EMAIL_KEY);
+            sessionStorage.removeItem(AUTH_IS_ADMIN_KEY);
+            sessionStorage.removeItem("eduandes.admin.view");
+          } catch (_) {}
+          showWelcomeScreen();
+        }
+      })
+      .catch(function () {
+        showWelcomeScreen();
+      });
+
     observer.observe(document.body, { childList: true, subtree: true });
     window.addEventListener("hashchange", function () {
       enforceRoleIsolation();

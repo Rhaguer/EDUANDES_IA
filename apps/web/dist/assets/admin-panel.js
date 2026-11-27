@@ -2,8 +2,9 @@
   "use strict";
 
   var AUTH_EMAIL_KEY = "eduandes.auth.email";
+  var AUTH_IS_ADMIN_KEY = "eduandes.auth.is_admin";
   var ADMIN_VIEW_KEY = "eduandes.admin.view";
-  var ADMIN_EMAIL = "administrador@ecuachile.cl";
+
   var SECTIONS = [
     { id: "users", title: "1. Usuarios, Roles e Instituciones" },
     { id: "academic", title: "2. Gestión Académica y RAG" },
@@ -17,7 +18,6 @@
 
   var state = {
     activeTab: "users",
-    adminProfile: "Administrador",
     data: null,
     auditLogs: [],
     realStats: {},
@@ -29,9 +29,17 @@
 
   function isAdminLoggedIn() {
     try {
-      return sessionStorage.getItem(AUTH_EMAIL_KEY) === ADMIN_EMAIL;
+      return sessionStorage.getItem(AUTH_IS_ADMIN_KEY) === "1";
     } catch (_) {
       return false;
+    }
+  }
+
+  function currentEmail() {
+    try {
+      return sessionStorage.getItem(AUTH_EMAIL_KEY) || "administrador@ecuachile.cl";
+    } catch (_) {
+      return "administrador@ecuachile.cl";
     }
   }
 
@@ -52,16 +60,23 @@
     document.body.appendChild(el);
     setTimeout(function () {
       if (el.parentNode) el.remove();
-    }, 3200);
+    }, 3600);
   }
 
   async function api(url, opts) {
-    var res = await fetch(url, opts);
-    if (!res.ok) {
-      var errText = await res.text();
-      throw new Error(errText || "Error HTTP " + res.status);
+    var finalOpts = Object.assign({ credentials: "same-origin" }, opts || {});
+    var res = await fetch(url, finalOpts);
+    if (res.status === 401) {
+      if (typeof window.__eduandesLogout === "function") window.__eduandesLogout();
+      throw new Error("Sesión expirada.");
     }
-    return res.json();
+    var raw = await res.text();
+    var parsed = null;
+    try { parsed = raw ? JSON.parse(raw) : {}; } catch (_) {}
+    if (!res.ok) {
+      throw new Error((parsed && parsed.detail) || raw || "Error HTTP " + res.status);
+    }
+    return parsed;
   }
 
   async function loadAll() {
@@ -82,8 +97,6 @@
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         data: payload,
-        actor: ADMIN_EMAIL,
-        actor_role: state.adminProfile,
         action: action || "UPDATE_" + sectionKey.toUpperCase(),
         target: target || sectionKey,
         reason: reason || "",
@@ -121,7 +134,8 @@
     var users = d.users;
     var rbac = d.rbac;
     var roles = ["Estudiante", "Docente", "Directivo / Orientador", "Administrador"];
-    var filtered = users.accounts.filter(function (a) {
+    var accounts = users.accounts || [];
+    var filtered = accounts.filter(function (a) {
       if (!state.userFilter) return true;
       var q = state.userFilter.toLowerCase();
       return (a.name + " " + a.email + " " + a.role + " " + a.institution).toLowerCase().indexOf(q) !== -1;
@@ -130,6 +144,7 @@
     var rowsHtml = filtered.map(function (u) {
       var badgeCls = u.status === "active" ? "is-ok" : "is-danger";
       var statusLabel = u.status === "active" ? "Activo" : "Suspendido";
+      var isSelf = u.email === currentEmail();
       return (
         "<tr>" +
           "<td><strong>" + esc(u.name) + "</strong><br><small>" + esc(u.email) + "</small></td>" +
@@ -138,10 +153,10 @@
           "<td><span class='ea-adm-badge " + badgeCls + "'>" + statusLabel + "</span></td>" +
           "<td>" + (u.mfa ? "MFA ON" : "MFA OFF") + " · <small>" + esc(u.sso) + "</small></td>" +
           "<td><div class='ea-adm-row-actions'>" +
-            "<button class='ea-adm-btn is-sm' data-act='toggle-status' data-id='" + esc(u.id) + "'>" + (u.status === "active" ? "Suspender" : "Reactivar") + "</button>" +
+            (!isSelf ? "<button class='ea-adm-btn is-sm' data-act='toggle-status' data-id='" + esc(u.id) + "'>" + (u.status === "active" ? "Suspender" : "Reactivar") + "</button>" : "") +
             "<button class='ea-adm-btn is-sm' data-act='toggle-mfa' data-id='" + esc(u.id) + "'>MFA</button>" +
-            "<button class='ea-adm-btn is-sm' data-act='reset-pw' data-email='" + esc(u.email) + "'>Reset Clave</button>" +
-            (u.email !== ADMIN_EMAIL ? "<button class='ea-adm-btn is-sm is-danger' data-act='del-user' data-id='" + esc(u.id) + "'>Eliminar</button>" : "") +
+            "<button class='ea-adm-btn is-sm' data-act='reset-pw' data-id='" + esc(u.id) + "' data-email='" + esc(u.email) + "'>Cambiar Clave</button>" +
+            (!isSelf && u.email !== "administrador@ecuachile.cl" ? "<button class='ea-adm-btn is-sm is-danger' data-act='del-user' data-id='" + esc(u.id) + "'>Eliminar</button>" : "") +
           "</div></td>" +
         "</tr>"
       );
@@ -156,20 +171,21 @@
 
     return (
       "<div class='ea-adm-header'><div><h2>1. Gestión de Usuarios, Roles e Instituciones</h2>" +
-      "<p>Cuentas, carga CSV, SSO, MFA, cierre remoto de sesiones y matriz RBAC granular.</p></div>" +
+      "<p>Cuentas reales protegidas con <strong>Argon2id</strong>, carga CSV, SSO, MFA, revocación remota y matriz RBAC.</p></div>" +
       "<div class='ea-adm-row-actions'>" +
         "<a class='ea-adm-btn' href='/api/admin/users/export-csv' target='_blank'>Exportar CSV</a>" +
-        "<button class='ea-adm-btn is-danger' id='btn-revoke-all'>Cerrar todas las sesiones</button>" +
+        "<button class='ea-adm-btn is-danger' id='btn-revoke-all'>Cerrar otras sesiones</button>" +
       "</div></div>" +
 
-      "<div class='ea-adm-card'><h3>Crear nueva cuenta</h3>" +
+      "<div class='ea-adm-card'><h3>Crear nueva cuenta (hash Argon2id)</h3>" +
         "<div class='ea-adm-form-grid'>" +
           "<div class='ea-adm-field'><label>Nombre completo</label><input id='u-name' placeholder='Ej. Camila Rojas' /></div>" +
           "<div class='ea-adm-field'><label>Correo institucional</label><input id='u-email' placeholder='usuario@ecuachile.cl' /></div>" +
+          "<div class='ea-adm-field'><label>Contraseña segura (mín. 10 chars, Aa1!)</label><input id='u-pass' type='password' placeholder='Ej. EduAndes#2026!' /></div>" +
           "<div class='ea-adm-field'><label>Rol</label><select id='u-role'><option>Estudiante</option><option>Docente</option><option>Directivo / Orientador</option><option>Administrador</option></select></div>" +
           "<div class='ea-adm-field'><label>Institución</label><input id='u-inst' value='Red Binacional CL-EC' /></div>" +
         "</div>" +
-        "<button class='ea-adm-btn is-primary' id='btn-add-user'>Crear Usuario</button>" +
+        "<button class='ea-adm-btn is-primary' id='btn-add-user'>Crear Usuario Seguro</button>" +
       "</div>" +
 
       "<div class='ea-adm-card'><h3>Cuentas registradas (" + filtered.length + ")</h3>" +
@@ -178,7 +194,7 @@
       "</div>" +
 
       "<div class='ea-adm-grid'>" +
-        "<div class='ea-adm-card'><h3>Integración SSO y MFA</h3>" +
+        "<div class='ea-adm-card'><h3>Políticas SSO y MFA</h3>" +
           "<div class='ea-adm-switch-row'><span>Google Workspace (OAuth2)</span><input type='checkbox' id='sso-google' " + (users.sso_providers.google_workspace ? "checked" : "") + " /></div>" +
           "<div class='ea-adm-switch-row'><span>Microsoft 365 (Entra ID)</span><input type='checkbox' id='sso-ms' " + (users.sso_providers.microsoft_365 ? "checked" : "") + " /></div>" +
           "<div class='ea-adm-switch-row'><span>SAML 2.0 / OAuth Institucional</span><input type='checkbox' id='sso-saml' " + (users.sso_providers.saml_oauth ? "checked" : "") + " /></div>" +
@@ -186,9 +202,9 @@
           "<button class='ea-adm-btn is-primary' id='btn-save-sso' style='margin-top:10px'>Guardar SSO y MFA</button>" +
         "</div>" +
         "<div class='ea-adm-card'><h3>Carga masiva CSV</h3>" +
-          "<div class='ea-adm-field'><label>Pega filas CSV (email,name,role,institution)</label>" +
+          "<div class='ea-adm-field'><label>Filas CSV (email,name,role,institution)</label>" +
           "<textarea id='csv-import-box' rows='4'>nuevo.docente@ecuachile.cl,Ana Paredes,Docente,Liceo Quito Sur\nnuevo.est@ecuachile.cl,Luis Soto,Estudiante,Liceo Santiago</textarea></div>" +
-          "<button class='ea-adm-btn is-primary' id='btn-import-csv'>Importar CSV</button>" +
+          "<button class='ea-adm-btn is-primary' id='btn-import-csv'>Importar CSV (claves aleatorias)</button>" +
         "</div>" +
       "</div>" +
 
@@ -248,15 +264,15 @@
     var ai = d.ai_governance;
     return (
       "<div class='ea-adm-header'><div><h2>3. Gobernanza y Configuración de la IA</h2>" +
-      "<p>Modelos por función, System Prompts socráticos, cuotas (Rate Limiting), guardrails, alertas tempranas y modo evaluación.</p></div></div>" +
+      "<p>Modelos activos en vivo, System Prompts socráticos, cuotas, filtro PII automático, guardrails y alertas tempranas.</p></div></div>" +
 
       "<div class='ea-adm-grid'>" +
         "<div class='ea-adm-card'><h3>Modelos, Proveedores y Fallbacks</h3>" +
-          "<div class='ea-adm-field'><label>Chat rápido (Groq)</label><input id='ai-m-fast' value='" + esc(ai.models.fast_chat) + "' /></div>" +
+          "<div class='ea-adm-field'><label>Modelo activo (en vivo desde .env)</label><input id='ai-m-fast' value='" + esc(ai.models.fast_chat) + "' /></div>" +
           "<div class='ea-adm-field'><label>Generación de exámenes</label><input id='ai-m-exam' value='" + esc(ai.models.exam_generation) + "' /></div>" +
           "<div class='ea-adm-field'><label>Análisis de documentos</label><input id='ai-m-doc' value='" + esc(ai.models.document_analysis) + "' /></div>" +
           "<div class='ea-adm-field'><label>Proveedor Fallback</label><input id='ai-m-fb' value='" + esc(ai.models.fallback_provider) + "' /></div>" +
-          "<p><small>API Key activa: <strong>" + esc(ai.models.api_key_masked) + "</strong> (leída desde <code>.env</code>)</small></p>" +
+          "<p><small>API Key activa: <strong>" + esc(ai.models.api_key_masked) + "</strong> · Filtro PII (RUT/DNI/Email): <span class='ea-adm-badge is-ok'>Activo</span></small></p>" +
         "</div>" +
         "<div class='ea-adm-card'><h3>Límites de Uso y Cuotas (Rate Limiting)</h3>" +
           "<div class='ea-adm-field'><label>Mensajes diarios por estudiante</label><input id='ai-r-msg' type='number' value='" + esc(ai.rate_limits.messages_per_day_student) + "' /></div>" +
@@ -283,7 +299,7 @@
         "<div class='ea-adm-switch-row'><span>Filtro de contenido inapropiado, violencia y lenguaje ofensivo</span><input type='checkbox' id='ai-g-mod' " + (ai.guardrails.content_moderation ? "checked" : "") + " /></div>" +
         "<div class='ea-adm-switch-row'><span>Escudo anti Prompt-Injection</span><input type='checkbox' id='ai-g-inj' " + (ai.guardrails.prompt_injection_shield ? "checked" : "") + " /></div>" +
         "<div class='ea-adm-switch-row'><span>Alertas tempranas automáticas a Orientación / Bienestar</span><input type='checkbox' id='ai-g-al' " + (ai.guardrails.early_alert_wellness ? "checked" : "") + " /></div>" +
-        "<div class='ea-adm-switch-row'><span><strong>Modo de Evaluación</strong> (desactiva tutores en horario de prueba: " + esc(ai.guardrails.exam_mode_window) + ")</span><input type='checkbox' id='ai-g-exam' " + (ai.guardrails.exam_mode_enabled ? "checked" : "") + " /></div>" +
+        "<div class='ea-adm-switch-row'><span><strong>Modo de Evaluación</strong> (restringe tutores en horario: " + esc(ai.guardrails.exam_mode_window) + ")</span><input type='checkbox' id='ai-g-exam' " + (ai.guardrails.exam_mode_enabled ? "checked" : "") + " /></div>" +
         "<button class='ea-adm-btn is-primary' id='btn-save-ai' style='margin-top:12px'>Guardar Gobernanza IA</button>" +
       "</div>" +
 
@@ -301,7 +317,7 @@
     var s = state.realStats || {};
     return (
       "<div class='ea-adm-header'><div><h2>4. Analíticas, Monitoreo y Reportes</h2>" +
-      "<p>Métricas reales de la base de datos, adopción, analíticas pedagógicas agregadas y control de costos IA.</p></div>" +
+      "<p>Métricas reales de la base de datos, sesiones activas, adopción y control de costos IA.</p></div>" +
       "<div class='ea-adm-row-actions'>" +
         "<a class='ea-adm-btn' href='/api/admin/reports/export?kind=adoption' target='_blank'>CSV Adopción</a>" +
         "<a class='ea-adm-btn' href='/api/admin/reports/export?kind=costs' target='_blank'>CSV Costos IA</a>" +
@@ -309,10 +325,10 @@
       "</div></div>" +
 
       "<div class='ea-adm-grid'>" +
-        "<div class='ea-adm-kpi'><div class='ea-adm-kpi-label'>Unidades / Cursos (BD real)</div><div class='ea-adm-kpi-value'>" + esc(s.units || 0) + "</div><div class='ea-adm-kpi-sub'>Materiales cargados: " + esc(s.materials || 0) + "</div></div>" +
+        "<div class='ea-adm-kpi'><div class='ea-adm-kpi-label'>Unidades / Materiales (BD real)</div><div class='ea-adm-kpi-value'>" + esc(s.units || 0) + " / " + esc(s.materials || 0) + "</div><div class='ea-adm-kpi-sub'>Sesiones activas ahora: " + esc(s.active_sessions || 1) + "</div></div>" +
         "<div class='ea-adm-kpi'><div class='ea-adm-kpi-label'>Evaluaciones e Intentos (BD real)</div><div class='ea-adm-kpi-value'>" + esc(s.quizzes || 0) + " / " + esc(s.attempts || 0) + "</div><div class='ea-adm-kpi-sub'>Preguntas revisadas: " + esc(s.questions || 0) + "</div></div>" +
         "<div class='ea-adm-kpi'><div class='ea-adm-kpi-label'>Usuarios Activos (DAU / MAU)</div><div class='ea-adm-kpi-value'>84 / 216</div><div class='ea-adm-kpi-sub'>Horario pico: 10:00 - 12:00 y 16:00 - 18:00</div></div>" +
-        "<div class='ea-adm-kpi'><div class='ea-adm-kpi-label'>Consumo y Costo IA (Mes)</div><div class='ea-adm-kpi-value'>701.6K tok</div><div class='ea-adm-kpi-sub'>Costo est.: \$0.84 USD · Latencia: 398 ms · Error: 0.3%</div></div>" +
+        "<div class='ea-adm-kpi'><div class='ea-adm-kpi-label'>Consumo y Costo IA (Mes)</div><div class='ea-adm-kpi-value'>701.6K tok</div><div class='ea-adm-kpi-sub'>Costo est.: $0.84 USD · Latencia: 398 ms · Error: 0.3%</div></div>" +
       "</div>" +
 
       "<div class='ea-adm-card'><h3>Analíticas Pedagógicas Agregadas (Privacidad preservada)</h3>" +
@@ -333,7 +349,7 @@
     });
     return (
       "<div class='ea-adm-header'><div><h2>5. Seguridad, Privacidad y Auditoría</h2>" +
-      "<p>Audit Logs inmutables, protección de datos de menores, consentimientos de apoderados y backups reales.</p></div>" +
+      "<p>Argon2id (OWASP), sesiones HttpOnly SHA-256, cabeceras CSP/HSTS, protección de menores y Audit Logs inmutables.</p></div>" +
       "<div class='ea-adm-row-actions'>" +
         "<a class='ea-adm-btn' href='/api/admin/reports/export?kind=audit' target='_blank'>Exportar Audit Log CSV</a>" +
         "<button class='ea-adm-btn is-primary' id='btn-create-backup'>Crear Backup SQLite Ahora</button>" +
@@ -341,18 +357,18 @@
 
       "<div class='ea-adm-grid'>" +
         "<div class='ea-adm-card'><h3>Protección de Datos y Menores</h3>" +
-          "<div class='ea-adm-switch-row'><span>Anonimizar nombres antes de enviar a APIs externas</span><input type='checkbox' id='sec-anon' " + (sec.anonymize_pii ? "checked" : "") + " /></div>" +
-          "<div class='ea-adm-switch-row'><span>Ocultar RUT / DNI y datos sensibles automáticamente</span><input type='checkbox' id='sec-rut' " + (sec.strip_rut_dni ? "checked" : "") + " /></div>" +
-          "<div class='ea-adm-switch-row'><span>Exigir consentimiento de apoderados (menores) · <strong>" + esc(sec.guardian_consents_pct) + "%</strong></span><input type='checkbox' id='sec-cons' " + (sec.guardian_consent_required ? "checked" : "") + " /></div>" +
+          "<div class='ea-adm-switch-row'><span>Anonimizar PII antes de enviar a APIs externas</span><input type='checkbox' id='sec-anon' " + (sec.anonymize_pii ? "checked" : "") + " /></div>" +
+          "<div class='ea-adm-switch-row'><span>Enmascarar RUT / Cédula y correos automáticamente</span><input type='checkbox' id='sec-rut' " + (sec.strip_rut_dni ? "checked" : "") + " /></div>" +
+          "<div class='ea-adm-switch-row'><span>Exigir consentimiento de apoderados · <strong>" + esc(sec.guardian_consents_pct) + "%</strong></span><input type='checkbox' id='sec-cons' " + (sec.guardian_consent_required ? "checked" : "") + " /></div>" +
           "<div class='ea-adm-field' style='margin-top:8px'><label>Retención automática de historiales (días)</label><input id='sec-ret' type='number' value='" + esc(sec.chat_retention_days) + "' /></div>" +
           "<button class='ea-adm-btn is-primary' id='btn-save-sec'>Guardar Políticas</button>" +
         "</div>" +
         "<div class='ea-adm-card'><h3>Copias de Seguridad (Backups)</h3>" +
           "<p><small>Programación automática: <strong>" + esc(sec.backup_schedule) + "</strong></small></p>" +
           "<div class='ea-adm-table-wrap'><table class='ea-adm-table'><thead><tr><th>Archivo</th><th>Tamaño</th><th>Fecha</th></tr></thead><tbody>" +
-          sec.backups.map(function (b) {
+          (sec.backups && sec.backups.length ? sec.backups.map(function (b) {
             return "<tr><td>" + esc(b.file) + "</td><td>" + esc(b.size_kb) + " KB</td><td><small>" + esc(b.created_at) + "</small></td></tr>";
-          }).join("") +
+          }).join("") : "<tr><td colspan='3'><small>Aún no hay respaldos manuales.</small></td></tr>") +
           "</tbody></table></div>" +
         "</div>" +
       "</div>" +
@@ -400,24 +416,24 @@
     var tickets = d.tickets.items || [];
     return (
       "<div class='ea-adm-header'><div><h2>7. Configuración Global del Sitio, Salud y Soporte</h2>" +
-      "<p>Branding institucional, banners, modo mantenimiento, Health Check en tiempo real y mesa de ayuda.</p></div>" +
+      "<p>Branding institucional, banners activos, modo mantenimiento real, Health Check en vivo y soporte.</p></div>" +
       "<button class='ea-adm-btn is-primary' id='btn-refresh-health'>Refrescar Health Check</button></div>" +
 
       "<div class='ea-adm-grid'>" +
-        "<div class='ea-adm-kpi'><div class='ea-adm-kpi-label'>Base de Datos SQLite</div><div class='ea-adm-kpi-value'>" + (h.database && h.database.ok ? "Online" : "Error") + "</div><div class='ea-adm-kpi-sub'>Latencia: " + esc(h.database ? h.database.latency_ms : "-") + " ms</div></div>" +
+        "<div class='ea-adm-kpi'><div class='ea-adm-kpi-label'>Base de Datos SQLite</div><div class='ea-adm-kpi-value'>" + (h.database && h.database.ok ? "Online" : "Error") + "</div><div class='ea-adm-kpi-sub'>Latencia: " + esc(h.database ? h.database.latency_ms : "-") + " ms · Disco: " + esc(h.disk_free_gb || "-") + " GB</div></div>" +
         "<div class='ea-adm-kpi'><div class='ea-adm-kpi-label'>Motor IA (" + esc(h.ai_provider ? h.ai_provider.engine : "-") + ")</div><div class='ea-adm-kpi-value'>" + (h.ai_provider && h.ai_provider.configured ? "Conectado" : "Sin API Key") + "</div><div class='ea-adm-kpi-sub'>Modelo: " + esc(h.ai_provider ? h.ai_provider.model : "-") + "</div></div>" +
-        "<div class='ea-adm-kpi'><div class='ea-adm-kpi-label'>Base Vectorial / Citas RAG</div><div class='ea-adm-kpi-value'>Operativa</div><div class='ea-adm-kpi-sub'>Disco libre: " + esc(h.disk_free_gb || "-") + " GB</div></div>" +
+        "<div class='ea-adm-kpi'><div class='ea-adm-kpi-label'>Ciberseguridad Activa</div><div class='ea-adm-kpi-value'>Argon2id</div><div class='ea-adm-kpi-sub'>HttpOnly SHA-256 · CSP · HSTS · Anti-BruteForce</div></div>" +
       "</div>" +
 
-      "<div class='ea-adm-card'><h3>Personalización (Branding) y Anuncios</h3>" +
+      "<div class='ea-adm-card'><h3>Personalización (Branding), Banner y Modo Mantenimiento</h3>" +
         "<div class='ea-adm-form-grid'>" +
           "<div class='ea-adm-field'><label>Nombre / Marca</label><input id='s-brand' value='" + esc(site.brand_name) + "' /></div>" +
-          "<div class='ea-adm-field'><label>Dominio / Subdominio</label><input id='s-domain' value='" + esc(site.domain) + "' /></div>" +
+          "<div class='ea-adm-field'><label>Dominio activo</label><input id='s-domain' value='" + esc(site.domain) + "' /></div>" +
           "<div class='ea-adm-field'><label>Color primario</label><input id='s-color' type='color' value='" + esc(site.primary_color) + "' /></div>" +
         "</div>" +
         "<div class='ea-adm-field'><label>Banner de anuncio global</label><input id='s-banner' value='" + esc(site.banner_text) + "' /></div>" +
         "<div class='ea-adm-switch-row'><span>Mostrar banner global en la plataforma</span><input type='checkbox' id='s-banner-on' " + (site.banner_active ? "checked" : "") + " /></div>" +
-        "<div class='ea-adm-switch-row'><span><strong>Modo Mantenimiento</strong> (bloquea acceso a estudiantes/docentes)</span><input type='checkbox' id='s-maint' " + (site.maintenance_mode ? "checked" : "") + " /></div>" +
+        "<div class='ea-adm-switch-row'><span><strong>Modo Mantenimiento</strong> (bloquea API y acceso a no-administradores)</span><input type='checkbox' id='s-maint' " + (site.maintenance_mode ? "checked" : "") + " /></div>" +
         "<button class='ea-adm-btn is-primary' id='btn-save-site' style='margin-top:12px'>Guardar Configuración del Sitio</button>" +
       "</div>" +
 
@@ -446,14 +462,14 @@
 
       "<div class='ea-adm-grid'>" +
         "<div class='ea-adm-card'><h3>Alcance del Administrador</h3>" +
-          "<p>Perfil activo en esta sesión: <strong>Administrador</strong>.</p>" +
+          "<p>Perfil activo en esta sesión: <strong>Administrador</strong> (" + esc(currentEmail()) + ").</p>" +
           "<ul style='margin:0;padding-left:18px;font-size:0.9rem;color:#2c3e66'>" +
-            "<li><strong>Gestión integral:</strong> usuarios, cursos, repositorio RAG, prompts pedagógicos, APIs, costos, backups, SSO y seguridad.</li>" +
-            "<li><strong>Trazabilidad:</strong> toda modificación queda registrada en el Audit Log inmutable.</li>" +
+            "<li><strong>Gestión integral:</strong> usuarios (Argon2id), cursos, repositorio RAG, prompts pedagógicos, APIs, costos, backups y seguridad.</li>" +
+            "<li><strong>Trazabilidad:</strong> toda modificación queda registrada en el Audit Log inmutable con fecha, hora e IP.</li>" +
           "</ul>" +
         "</div>" +
         "<div class='ea-adm-card'><h3>Acceso Excepcional a Chats Privados</h3>" +
-          "<p style='font-size:0.88rem;color:#556582'>Por privacidad, ningún administrador puede leer conversaciones libremente. Todo acceso excepcional por soporte o alerta de bienestar exige un motivo registrado.</p>" +
+          "<p style='font-size:0.88rem;color:#556582'>Por privacidad, ningún administrador puede leer conversaciones libremente. Todo acceso excepcional exige motivo registrado.</p>" +
           "<div class='ea-adm-field'><label>ID de conversación con alerta/ticket</label><select id='chat-id-sel'><option value='CHAT-AL-101'>CHAT-AL-101 (Alerta Bienestar)</option><option value='CHAT-TCK-204'>CHAT-TCK-204 (Ticket Soporte)</option></select></div>" +
           "<div class='ea-adm-field'><label>Motivo obligatorio (mín. 8 caracteres)</label><input id='chat-reason' placeholder='Ej. Revisión por alerta temprana #101' /></div>" +
           "<button class='ea-adm-btn is-danger' id='btn-chat-access'>Registrar Motivo y Consultar Extracto</button>" +
@@ -464,7 +480,7 @@
   }
 
   function renderBody() {
-    if (!state.data) return "<div class='ea-adm-card'>Cargando consola de administración...</div>";
+    if (!state.data) return "<div class='ea-adm-card'>Cargando consola segura de administración...</div>";
     switch (state.activeTab) {
       case "users": return renderUsersTab(state.data);
       case "academic": return renderAcademicTab(state.data);
@@ -487,10 +503,11 @@
 
     root.innerHTML =
       "<header class='ea-adm-topbar'>" +
-        "<div class='ea-adm-brand'><span>EduAndes AI · Consola Admin</span><span class='ea-adm-pill'>" + esc(ADMIN_EMAIL) + "</span></div>" +
+        "<div class='ea-adm-brand'><span>EduAndes AI · Consola Admin</span><span class='ea-adm-pill'>" + esc(currentEmail()) + "</span></div>" +
         "<div class='ea-adm-top-actions'>" +
           "<span class='ea-adm-pill'>Administrador</span>" +
-          "<button class='ea-adm-top-btn' id='ea-adm-go-app'>Ir a Plataforma (#/)</button>" +
+          "<button class='ea-adm-top-btn' id='ea-adm-go-app'>Ir a Plataforma</button>" +
+          "<button class='ea-adm-top-btn is-logout' id='ea-adm-logout'>Cerrar sesión</button>" +
         "</div>" +
       "</header>" +
       "<div class='ea-adm-shell'>" +
@@ -509,21 +526,25 @@
       });
     });
 
-    var profSel = root.querySelector("#ea-adm-profile-sel");
-    if (profSel) {
-      profSel.addEventListener("change", function () {
-        state.adminProfile = profSel.value;
-        showToast("Perfil activo cambiado a: " + state.adminProfile);
-        render();
-      });
-    }
-
     var goApp = root.querySelector("#ea-adm-go-app");
     if (goApp) {
       goApp.addEventListener("click", function () {
         try { sessionStorage.setItem(ADMIN_VIEW_KEY, "0"); } catch (_) {}
         window.location.hash = "#/";
         mountOrUnmount();
+      });
+    }
+
+    var logoutBtn = root.querySelector("#ea-adm-logout");
+    if (logoutBtn) {
+      logoutBtn.addEventListener("click", function () {
+        if (typeof window.__eduandesLogout === "function") {
+          window.__eduandesLogout();
+        } else {
+          fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }).finally(function () {
+            window.location.reload();
+          });
+        }
       });
     }
 
@@ -552,15 +573,21 @@
       btnAddUser.addEventListener("click", function () {
         var name = root.querySelector("#u-name").value.trim();
         var email = root.querySelector("#u-email").value.trim().toLowerCase();
+        var password = root.querySelector("#u-pass").value;
         var role = root.querySelector("#u-role").value;
         var inst = root.querySelector("#u-inst").value.trim();
-        if (!name || !email || email.indexOf("@") === -1) return showToast("Ingresa nombre y correo válido.");
-        state.data.users.accounts.push({
-          id: "usr-" + String(Date.now()).slice(-4),
-          name: name, email: email, role: role, institution: inst || "Red Binacional",
-          status: "active", mfa: role !== "Estudiante", sso: "Local", last_seen: "Nuevo"
-        });
-        saveSection("users", state.data.users, "CREATE_USER", email);
+        api("/api/admin/users", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: name, email: email, password: password, role: role, institution: inst }),
+        })
+          .then(function (r) {
+            state.data.users.accounts = r.accounts;
+            state.auditLogs = r.audit_logs;
+            showToast("Usuario creado con hash Argon2id.");
+            render();
+          })
+          .catch(function (e) { showToast(e.message); });
       });
     }
 
@@ -568,25 +595,32 @@
       btn.addEventListener("click", function () {
         var act = btn.getAttribute("data-act");
         var id = btn.getAttribute("data-id");
-        var accounts = state.data.users.accounts;
         if (act === "reset-pw") {
-          return api("/api/admin/sessions/revoke-all", {
+          var newPw = window.prompt("Nueva contraseña para " + btn.getAttribute("data-email") + " (mín. 10 caracteres, mayúscula, minúscula, número y símbolo):");
+          if (!newPw) return;
+          return api("/api/admin/users/" + encodeURIComponent(id) + "/reset-password", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ actor: ADMIN_EMAIL, actor_role: state.adminProfile, target: btn.getAttribute("data-email"), reason: "Restablecimiento de contraseña" })
-          }).then(function () { showToast("Enlace de restablecimiento enviado y registrado."); loadAll(); });
+            body: JSON.stringify({ new_password: newPw }),
+          })
+            .then(function (r) { state.auditLogs = r.audit_logs; showToast("Contraseña actualizada (Argon2id) y sesiones cerradas."); render(); })
+            .catch(function (e) { showToast(e.message); });
         }
-        var targetUser = accounts.find(function (u) { return u.id === id; });
-        if (!targetUser) return;
         if (act === "toggle-status") {
-          targetUser.status = targetUser.status === "active" ? "suspended" : "active";
-          saveSection("users", state.data.users, "TOGGLE_USER_STATUS", targetUser.email);
-        } else if (act === "toggle-mfa") {
-          targetUser.mfa = !targetUser.mfa;
-          saveSection("users", state.data.users, "TOGGLE_USER_MFA", targetUser.email);
-        } else if (act === "del-user") {
-          state.data.users.accounts = accounts.filter(function (u) { return u.id !== id; });
-          saveSection("users", state.data.users, "DELETE_USER", targetUser.email);
+          return api("/api/admin/users/" + encodeURIComponent(id) + "/toggle-status", { method: "POST" })
+            .then(function (r) { state.data.users.accounts = r.accounts; state.auditLogs = r.audit_logs; showToast("Estado actualizado."); render(); })
+            .catch(function (e) { showToast(e.message); });
+        }
+        if (act === "toggle-mfa") {
+          return api("/api/admin/users/" + encodeURIComponent(id) + "/toggle-mfa", { method: "POST" })
+            .then(function (r) { state.data.users.accounts = r.accounts; state.auditLogs = r.audit_logs; showToast("MFA actualizado."); render(); })
+            .catch(function (e) { showToast(e.message); });
+        }
+        if (act === "del-user") {
+          if (!window.confirm("¿Eliminar definitivamente esta cuenta?")) return;
+          return api("/api/admin/users/" + encodeURIComponent(id), { method: "DELETE" })
+            .then(function (r) { state.data.users.accounts = r.accounts; state.auditLogs = r.audit_logs; showToast("Cuenta eliminada."); render(); })
+            .catch(function (e) { showToast(e.message); });
         }
       });
     });
@@ -597,8 +631,8 @@
         api("/api/admin/sessions/revoke-all", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ actor: ADMIN_EMAIL, actor_role: state.adminProfile, target: "Todas las sesiones activas", reason: "Cierre remoto global" })
-        }).then(function (r) { showToast(r.message); loadAll(); });
+          body: JSON.stringify({ target: "Otras sesiones activas", reason: "Cierre remoto global" }),
+        }).then(function (r) { showToast(r.message); loadAll(); }).catch(function (e) { showToast(e.message); });
       });
     }
 
@@ -611,7 +645,7 @@
           saml_oauth: root.querySelector("#sso-saml").checked,
           mfa_required_admins_teachers: root.querySelector("#sso-mfa").checked,
         };
-        saveSection("users", state.data.users, "UPDATE_SSO_MFA", "SSO y MFA");
+        saveSection("users", state.data.users, "UPDATE_SSO_MFA", "SSO y MFA").catch(function (e) { showToast(e.message); });
       });
     }
 
@@ -622,8 +656,10 @@
         api("/api/admin/users/import-csv", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ csv_text: txt, actor: ADMIN_EMAIL })
-        }).then(function (r) { showToast("Importados " + r.added + " usuarios."); loadAll(); });
+          body: JSON.stringify({ csv_text: txt }),
+        })
+          .then(function (r) { showToast("Importados " + r.added + " usuarios con Argon2id."); loadAll(); })
+          .catch(function (e) { showToast(e.message); });
       });
     }
 
@@ -635,7 +671,7 @@
           var role = chk.getAttribute("data-rbac-role");
           state.data.rbac.permissions[idx][role] = chk.checked;
         });
-        saveSection("rbac", state.data.rbac, "UPDATE_RBAC_MATRIX", "Matriz de permisos");
+        saveSection("rbac", state.data.rbac, "UPDATE_RBAC_MATRIX", "Matriz de permisos").catch(function (e) { showToast(e.message); });
       });
     }
 
@@ -652,7 +688,7 @@
           students: Number(root.querySelector("#c-students").value || 0),
           tutor: "Tutor General",
         });
-        saveSection("academic", state.data.academic, "CREATE_COURSE", name);
+        saveSection("academic", state.data.academic, "CREATE_COURSE", name).catch(function (e) { showToast(e.message); });
       });
     }
 
@@ -669,7 +705,7 @@
           pages: 18,
           status: "Indexado",
         });
-        saveSection("rag_docs", state.data.rag_docs, "INDEX_CURRICULUM_DOC", title);
+        saveSection("rag_docs", state.data.rag_docs, "INDEX_CURRICULUM_DOC", title).catch(function (e) { showToast(e.message); });
       });
     }
 
@@ -677,7 +713,7 @@
       btn.addEventListener("click", function () {
         var id = btn.getAttribute("data-del-doc");
         state.data.rag_docs.documents = state.data.rag_docs.documents.filter(function (x) { return x.id !== id; });
-        saveSection("rag_docs", state.data.rag_docs, "DELETE_CURRICULUM_DOC", id);
+        saveSection("rag_docs", state.data.rag_docs, "DELETE_CURRICULUM_DOC", id).catch(function (e) { showToast(e.message); });
       });
     });
 
@@ -687,7 +723,7 @@
         root.querySelectorAll("[data-mod-idx]").forEach(function (chk) {
           state.data.academic.modules[Number(chk.getAttribute("data-mod-idx"))].enabled = chk.checked;
         });
-        saveSection("academic", state.data.academic, "UPDATE_SUBJECT_MODULES", "Tutores por asignatura");
+        saveSection("academic", state.data.academic, "UPDATE_SUBJECT_MODULES", "Tutores por asignatura").catch(function (e) { showToast(e.message); });
       });
     }
 
@@ -711,7 +747,7 @@
         ai.guardrails.prompt_injection_shield = root.querySelector("#ai-g-inj").checked;
         ai.guardrails.early_alert_wellness = root.querySelector("#ai-g-al").checked;
         ai.guardrails.exam_mode_enabled = root.querySelector("#ai-g-exam").checked;
-        saveSection("ai_governance", ai, "UPDATE_AI_GOVERNANCE", "Modelos, Prompt " + ai.prompts.version + " y Guardrails");
+        saveSection("ai_governance", ai, "UPDATE_AI_GOVERNANCE", "Modelos, Prompt " + ai.prompts.version + " y Guardrails").catch(function (e) { showToast(e.message); });
       });
     }
 
@@ -724,8 +760,8 @@
         api("/api/admin/backups", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ actor: ADMIN_EMAIL, actor_role: state.adminProfile, reason: "Respaldo manual" })
-        }).then(function (r) { showToast("Backup creado: " + r.backup.file); loadAll(); });
+          body: JSON.stringify({ reason: "Respaldo manual" }),
+        }).then(function (r) { showToast("Backup creado: " + r.backup.file); loadAll(); }).catch(function (e) { showToast(e.message); });
       });
     }
 
@@ -737,7 +773,7 @@
         sec.strip_rut_dni = root.querySelector("#sec-rut").checked;
         sec.guardian_consent_required = root.querySelector("#sec-cons").checked;
         sec.chat_retention_days = Number(root.querySelector("#sec-ret").value || 90);
-        saveSection("security_privacy", sec, "UPDATE_PRIVACY_POLICY", "Privacidad y menores");
+        saveSection("security_privacy", sec, "UPDATE_PRIVACY_POLICY", "Privacidad y menores").catch(function (e) { showToast(e.message); });
       });
     }
 
@@ -751,14 +787,14 @@
         root.querySelectorAll("[data-ff-idx]").forEach(function (chk) {
           lic.feature_flags[Number(chk.getAttribute("data-ff-idx"))].enabled = chk.checked;
         });
-        saveSection("licensing", lic, "UPDATE_LICENSING", "Plan " + lic.plan);
+        saveSection("licensing", lic, "UPDATE_LICENSING", "Plan " + lic.plan).catch(function (e) { showToast(e.message); });
       });
     }
 
     var btnHealth = root.querySelector("#btn-refresh-health");
     if (btnHealth) {
       btnHealth.addEventListener("click", function () {
-        api("/api/admin/health").then(function (h) { state.health = h; showToast("Health Check actualizado."); render(); });
+        api("/api/admin/health").then(function (h) { state.health = h; showToast("Health Check actualizado."); render(); }).catch(function (e) { showToast(e.message); });
       });
     }
 
@@ -772,7 +808,7 @@
         site.banner_text = root.querySelector("#s-banner").value.trim();
         site.banner_active = root.querySelector("#s-banner-on").checked;
         site.maintenance_mode = root.querySelector("#s-maint").checked;
-        saveSection("site_config", site, "UPDATE_SITE_CONFIG", site.domain);
+        saveSection("site_config", site, "UPDATE_SITE_CONFIG", site.domain).catch(function (e) { showToast(e.message); });
       });
     }
 
@@ -780,7 +816,7 @@
       btn.addEventListener("click", function () {
         var t = state.data.tickets.items[Number(btn.getAttribute("data-toggle-tck"))];
         t.status = t.status === "Abierto" ? "Resuelto" : "Abierto";
-        saveSection("tickets", state.data.tickets, "UPDATE_TICKET", t.id);
+        saveSection("tickets", state.data.tickets, "UPDATE_TICKET", t.id).catch(function (e) { showToast(e.message); });
       });
     });
 
@@ -793,8 +829,8 @@
         api("/api/admin/chat-access", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ chat_id: chatId, actor: ADMIN_EMAIL, actor_role: state.adminProfile, reason: reason })
-        }).then(function (r) { state.chatTranscript = r; showToast("Acceso auditado en el Audit Log."); loadAll(); });
+          body: JSON.stringify({ chat_id: chatId, reason: reason }),
+        }).then(function (r) { state.chatTranscript = r; showToast("Acceso auditado en el Audit Log."); loadAll(); }).catch(function (e) { showToast(e.message); });
       });
     }
   }

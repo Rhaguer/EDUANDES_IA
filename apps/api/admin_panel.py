@@ -1,4 +1,4 @@
-"""Backend REST y persistencia SQLite para el Panel de Administración de EduAndes AI."""
+"""Backend REST endurecido y persistencia SQLite para el Panel de Administración de EduAndes AI."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import io
 import json
 import os
 from pathlib import Path
+import secrets
 import shutil
 import sqlite3
 import time
@@ -16,6 +17,15 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
+from .security_auth import (
+    client_ip,
+    hash_password,
+    initialize_auth,
+    list_auth_users,
+    require_admin,
+    revoke_user_sessions,
+    validate_password_strength,
+)
 from .store import connect
 
 VALID_SECTIONS = {
@@ -35,55 +45,18 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
+def _live_api_key_masked() -> str:
+    key = os.environ.get("EDUCORE_LLM_API_KEY", "").strip()
+    return ("***" + key[-4:]) if len(key) >= 4 else "No configurada"
+
+
+def _live_model() -> str:
+    return os.environ.get("EDUCORE_LLM_MODEL", "qwen/qwen3.8-27b").strip() or "qwen/qwen3.8-27b"
+
+
 def _default_sections() -> dict[str, Any]:
     return {
         "users": {
-            "accounts": [
-                {
-                    "id": "usr-001",
-                    "name": "Administrador Principal",
-                    "email": "administrador@ecuachile.cl",
-                    "role": "Administrador",
-                    "institution": "EduAndes Central (CL-EC)",
-                    "status": "active",
-                    "mfa": True,
-                    "sso": "Local + MFA",
-                    "last_seen": "Activo ahora",
-                },
-                {
-                    "id": "usr-002",
-                    "name": "Docente Binacional",
-                    "email": "docente@ecuachile.cl",
-                    "role": "Docente",
-                    "institution": "Liceo Bicentenario Santiago",
-                    "status": "active",
-                    "mfa": True,
-                    "sso": "Google Workspace",
-                    "last_seen": "Hace 12 min",
-                },
-                {
-                    "id": "usr-003",
-                    "name": "Estudiante Demo",
-                    "email": "estudiante@ecuachile.cl",
-                    "role": "Estudiante",
-                    "institution": "Unidad Educativa Quito Norte",
-                    "status": "active",
-                    "mfa": False,
-                    "sso": "Microsoft 365",
-                    "last_seen": "Hace 28 min",
-                },
-                {
-                    "id": "usr-004",
-                    "name": "Orientación y Bienestar",
-                    "email": "orientacion@ecuachile.cl",
-                    "role": "Directivo / Orientador",
-                    "institution": "Red Binacional ODS 4",
-                    "status": "active",
-                    "mfa": True,
-                    "sso": "SAML 2.0",
-                    "last_seen": "Hace 1 h",
-                },
-            ],
             "sso_providers": {
                 "google_workspace": True,
                 "microsoft_365": True,
@@ -130,14 +103,14 @@ def _default_sections() -> dict[str, Any]:
         },
         "ai_governance": {
             "models": {
-                "fast_chat": os.environ.get("EDUCORE_LLM_MODEL", "llama-3.1-8b-instant"),
-                "exam_generation": "llama-3.3-70b-versatile",
+                "fast_chat": _live_model(),
+                "exam_generation": _live_model(),
                 "document_analysis": "us.amazon.nova-lite-v1:0",
                 "fallback_provider": "Amazon Bedrock (us-east-1)",
-                "api_key_masked": ("***" + os.environ.get("EDUCORE_LLM_API_KEY", "")[-4:]) if os.environ.get("EDUCORE_LLM_API_KEY") else "No configurada",
+                "api_key_masked": _live_api_key_masked(),
             },
             "prompts": {
-                "version": "v2.4-socratico",
+                "version": "v2.5-socratico-seguro",
                 "socratic_mode": True,
                 "age_adaptation": "Media (13-17 años)",
                 "system_prompt": (
@@ -174,9 +147,7 @@ def _default_sections() -> dict[str, Any]:
             "admin_separation_enforced": True,
             "chat_privacy_require_reason": True,
             "backup_schedule": "Diario 03:00 UTC",
-            "backups": [
-                {"id": "bkp-1", "file": "educore-auto-2026-11-26.sqlite3", "size_kb": 724, "created_at": "2026-11-26 03:00:00 UTC"},
-            ],
+            "backups": [],
         },
         "licensing": {
             "plan": "Institucional",
@@ -194,13 +165,13 @@ def _default_sections() -> dict[str, Any]:
             "brand_name": "EduAndes AI · Red Chile–Ecuador",
             "primary_color": "#0039a6",
             "accent_color": "#ffd100",
-            "domain": "eduandes.ecuachile.cl",
+            "domain": "eduandesai.duckdns.org",
             "welcome_text": "Plataforma educativa binacional con IA verificada por citas literales.",
             "terms_url": "#/terminos",
             "privacy_url": "#/privacidad",
             "maintenance_mode": False,
             "banner_active": True,
-            "banner_text": "Ventana de sincronización curricular ODS 4 activa. Tutores verificados operativos.",
+            "banner_text": "EduAndes AI activo con seguridad Argon2id y cifrado HTTPS extremo a extremo.",
             "email_template_alert": "Estimado equipo de Orientación: se detectó una señal temprana que requiere revisión.",
         },
         "tickets": {
@@ -212,14 +183,8 @@ def _default_sections() -> dict[str, Any]:
     }
 
 
-def _client_ip(request: Request) -> str:
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "127.0.0.1"
-
-
 def initialize_admin(db_path: Path) -> None:
+    initialize_auth(db_path)
     with connect(db_path, write=True) as db:
         db.execute(
             """
@@ -251,6 +216,13 @@ def initialize_admin(db_path: Path) -> None:
                 "INSERT OR IGNORE INTO admin_kv (key, value, updated_at) VALUES (?, ?, ?)",
                 (key, json.dumps(value, ensure_ascii=False), now),
             )
+        # Sincronizar dominio desactualizado si quedó el valor antiguo
+        site_row = db.execute("SELECT value FROM admin_kv WHERE key = 'site_config'").fetchone()
+        if site_row:
+            site = json.loads(site_row["value"])
+            if site.get("domain") == "eduandes.ecuachile.cl":
+                site["domain"] = "eduandesai.duckdns.org"
+                db.execute("UPDATE admin_kv SET value = ?, updated_at = ? WHERE key = 'site_config'", (json.dumps(site, ensure_ascii=False), now))
         existing_logs = db.execute("SELECT COUNT(*) FROM admin_audit_logs").fetchone()[0]
         if existing_logs == 0:
             db.execute(
@@ -264,7 +236,7 @@ def initialize_admin(db_path: Path) -> None:
                     "Administrador",
                     "INIT_ADMIN_CONSOLE",
                     "Sistema EduAndes AI",
-                    "Inicialización de consola de administración",
+                    "Inicialización segura con Argon2id y auditoría inmutable",
                     "127.0.0.1",
                     "Registro de auditoría inmutable habilitado.",
                 ),
@@ -308,31 +280,46 @@ def _save_section(db: sqlite3.Connection, key: str, data: dict[str, Any]) -> Non
     )
 
 
+def _recent_logs(db: sqlite3.Connection) -> list[dict[str, Any]]:
+    return [
+        dict(r)
+        for r in db.execute(
+            "SELECT id, timestamp, actor, actor_role, action, target, reason, ip, details "
+            "FROM admin_audit_logs ORDER BY id DESC LIMIT 80"
+        ).fetchall()
+    ]
+
+
 class SectionUpdate(BaseModel):
     data: dict[str, Any]
-    actor: str = "administrador@ecuachile.cl"
-    actor_role: str = "Administrador"
     action: str = "UPDATE_CONFIG"
     target: str = ""
     reason: str = ""
 
 
+class CreateUserInput(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
+    email: str = Field(min_length=5, max_length=160)
+    password: str = Field(min_length=10, max_length=200)
+    role: str = Field(min_length=3, max_length=40)
+    institution: str = Field(default="Red Binacional CL-EC", max_length=120)
+
+
+class ResetPasswordInput(BaseModel):
+    new_password: str = Field(min_length=10, max_length=200)
+
+
 class CsvImportInput(BaseModel):
     csv_text: str = Field(min_length=3, max_length=200_000)
-    actor: str = "administrador@ecuachile.cl"
 
 
 class ChatAccessRequest(BaseModel):
     chat_id: str = Field(min_length=1, max_length=64)
-    actor: str = "administrador@ecuachile.cl"
-    actor_role: str = "Administrador"
     reason: str = Field(min_length=8, max_length=500)
 
 
 class ActionInput(BaseModel):
-    actor: str = "administrador@ecuachile.cl"
-    actor_role: str = "Administrador"
-    target: str = "Todos los usuarios"
+    target: str = "Todas las sesiones activas"
     reason: str = ""
 
 
@@ -340,24 +327,28 @@ def build_admin_router(db_path: Path) -> APIRouter:
     router = APIRouter(prefix="/api/admin", tags=["admin"])
 
     @router.get("/state")
-    def get_state():
+    def get_state(request: Request):
+        require_admin(db_path, request)
         initialize_admin(db_path)
         with connect(db_path) as db:
             sections = {k: _get_section(db, k) for k in VALID_SECTIONS}
-            logs = [
-                dict(r)
-                for r in db.execute(
-                    "SELECT id, timestamp, actor, actor_role, action, target, reason, ip, details "
-                    "FROM admin_audit_logs ORDER BY id DESC LIMIT 60"
-                ).fetchall()
-            ]
-            # Real DB metrics
+            # Inyectar usuarios reales desde auth_users (Argon2id)
+            sections["users"]["accounts"] = list_auth_users(db)
+            # Inyectar modelo y API key en vivo desde entorno
+            ai_models = sections["ai_governance"].setdefault("models", {})
+            ai_models["fast_chat"] = _live_model()
+            ai_models["api_key_masked"] = _live_api_key_masked()
+            logs = _recent_logs(db)
+
             def _count(table: str) -> int:
                 try:
                     return int(db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
                 except sqlite3.Error:
                     return 0
 
+            active_sessions = int(
+                db.execute("SELECT COUNT(*) FROM auth_sessions WHERE revoked = 0 AND expires_at > ?", (time.time(),)).fetchone()[0]
+            )
             real_stats = {
                 "units": _count("ec_units"),
                 "materials": _count("ec_materials"),
@@ -365,81 +356,224 @@ def build_admin_router(db_path: Path) -> APIRouter:
                 "attempts": _count("ec_attempts"),
                 "sources": _count("sources"),
                 "questions": _count("questions"),
+                "active_sessions": active_sessions,
             }
         return {"sections": sections, "audit_logs": logs, "real_stats": real_stats}
 
     @router.put("/section/{section}")
     def update_section(section: str, body: SectionUpdate, request: Request):
+        admin = require_admin(db_path, request)
         if section not in VALID_SECTIONS:
             raise HTTPException(404, f"Sección desconocida: {section}")
         initialize_admin(db_path)
+        data_to_save = dict(body.data)
+        if section == "users":
+            data_to_save.pop("accounts", None)
         with connect(db_path, write=True) as db:
-            _save_section(db, section, body.data)
+            _save_section(db, section, data_to_save)
             _log_audit(
                 db,
-                actor=body.actor,
-                actor_role=body.actor_role,
+                actor=admin["email"],
+                actor_role=admin["role"],
                 action=body.action,
                 target=body.target or section,
                 reason=body.reason,
-                ip=_client_ip(request),
+                ip=client_ip(request),
                 details=f"Sección '{section}' actualizada.",
             )
-            logs = [
-                dict(r)
-                for r in db.execute(
-                    "SELECT id, timestamp, actor, actor_role, action, target, reason, ip, details "
-                    "FROM admin_audit_logs ORDER BY id DESC LIMIT 60"
-                ).fetchall()
-            ]
+            logs = _recent_logs(db)
         return {"ok": True, "section": section, "audit_logs": logs}
+
+    @router.post("/users")
+    def create_user(body: CreateUserInput, request: Request):
+        admin = require_admin(db_path, request)
+        email = body.email.strip().lower()
+        if "@" not in email or "." not in email.split("@")[-1]:
+            raise HTTPException(422, "Correo institucional inválido.")
+        if body.role not in {"Estudiante", "Docente", "Directivo / Orientador", "Administrador"}:
+            raise HTTPException(422, "Rol no válido.")
+        try:
+            validate_password_strength(body.password)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        uid = f"usr-{secrets.token_hex(4)}"
+        with connect(db_path, write=True) as db:
+            if db.execute("SELECT 1 FROM auth_users WHERE LOWER(email) = ?", (email,)).fetchone():
+                raise HTTPException(409, "Ya existe una cuenta con ese correo.")
+            db.execute(
+                """
+                INSERT INTO auth_users
+                (id, name, email, password_hash, role, institution, status, mfa, sso, last_seen, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, 'active', ?, 'Argon2id', 'Nuevo', ?)
+                """,
+                (
+                    uid,
+                    body.name.strip(),
+                    email,
+                    hash_password(body.password),
+                    body.role,
+                    body.institution.strip() or "Red Binacional CL-EC",
+                    1 if body.role != "Estudiante" else 0,
+                    _now_iso(),
+                ),
+            )
+            _log_audit(
+                db,
+                actor=admin["email"],
+                actor_role=admin["role"],
+                action="CREATE_USER",
+                target=email,
+                reason=f"Rol: {body.role} (Argon2id)",
+                ip=client_ip(request),
+            )
+            accounts = list_auth_users(db)
+            logs = _recent_logs(db)
+        return {"ok": True, "id": uid, "accounts": accounts, "audit_logs": logs}
+
+    @router.post("/users/{user_id}/toggle-status")
+    def toggle_user_status(user_id: str, request: Request):
+        admin = require_admin(db_path, request)
+        with connect(db_path, write=True) as db:
+            row = db.execute("SELECT id, email, status FROM auth_users WHERE id = ?", (user_id,)).fetchone()
+            if not row:
+                raise HTTPException(404, "Usuario no encontrado.")
+            if row["id"] == admin["id"]:
+                raise HTTPException(400, "No puedes suspender tu propia cuenta de Administrador.")
+            new_status = "suspended" if row["status"] == "active" else "active"
+            db.execute("UPDATE auth_users SET status = ? WHERE id = ?", (new_status, user_id))
+            if new_status == "suspended":
+                revoke_user_sessions(db, user_id=user_id)
+            _log_audit(
+                db,
+                actor=admin["email"],
+                actor_role=admin["role"],
+                action="TOGGLE_USER_STATUS",
+                target=row["email"],
+                reason=f"Nuevo estado: {new_status}",
+                ip=client_ip(request),
+            )
+            return {"ok": True, "status": new_status, "accounts": list_auth_users(db), "audit_logs": _recent_logs(db)}
+
+    @router.post("/users/{user_id}/toggle-mfa")
+    def toggle_user_mfa(user_id: str, request: Request):
+        admin = require_admin(db_path, request)
+        with connect(db_path, write=True) as db:
+            row = db.execute("SELECT id, email, mfa FROM auth_users WHERE id = ?", (user_id,)).fetchone()
+            if not row:
+                raise HTTPException(404, "Usuario no encontrado.")
+            new_mfa = 0 if row["mfa"] else 1
+            db.execute("UPDATE auth_users SET mfa = ? WHERE id = ?", (new_mfa, user_id))
+            _log_audit(
+                db,
+                actor=admin["email"],
+                actor_role=admin["role"],
+                action="TOGGLE_USER_MFA",
+                target=row["email"],
+                reason=f"MFA={'ON' if new_mfa else 'OFF'}",
+                ip=client_ip(request),
+            )
+            return {"ok": True, "mfa": bool(new_mfa), "accounts": list_auth_users(db), "audit_logs": _recent_logs(db)}
+
+    @router.post("/users/{user_id}/reset-password")
+    def reset_user_password(user_id: str, body: ResetPasswordInput, request: Request):
+        admin = require_admin(db_path, request)
+        try:
+            validate_password_strength(body.new_password)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        with connect(db_path, write=True) as db:
+            row = db.execute("SELECT id, email FROM auth_users WHERE id = ?", (user_id,)).fetchone()
+            if not row:
+                raise HTTPException(404, "Usuario no encontrado.")
+            db.execute("UPDATE auth_users SET password_hash = ? WHERE id = ?", (hash_password(body.new_password), user_id))
+            revoke_user_sessions(db, user_id=user_id)
+            _log_audit(
+                db,
+                actor=admin["email"],
+                actor_role=admin["role"],
+                action="RESET_USER_PASSWORD",
+                target=row["email"],
+                reason="Contraseña reestablecida (Argon2id) y sesiones revocadas",
+                ip=client_ip(request),
+            )
+            return {"ok": True, "audit_logs": _recent_logs(db)}
+
+    @router.delete("/users/{user_id}")
+    def delete_user(user_id: str, request: Request):
+        admin = require_admin(db_path, request)
+        with connect(db_path, write=True) as db:
+            row = db.execute("SELECT id, email FROM auth_users WHERE id = ?", (user_id,)).fetchone()
+            if not row:
+                raise HTTPException(404, "Usuario no encontrado.")
+            if row["id"] == admin["id"] or row["email"] == "administrador@ecuachile.cl":
+                raise HTTPException(400, "No se puede eliminar la cuenta principal de Administrador.")
+            revoke_user_sessions(db, user_id=user_id)
+            db.execute("DELETE FROM auth_users WHERE id = ?", (user_id,))
+            _log_audit(
+                db,
+                actor=admin["email"],
+                actor_role=admin["role"],
+                action="DELETE_USER",
+                target=row["email"],
+                reason="Eliminación administrativa",
+                ip=client_ip(request),
+            )
+            return {"ok": True, "accounts": list_auth_users(db), "audit_logs": _recent_logs(db)}
 
     @router.post("/users/import-csv")
     def import_users_csv(body: CsvImportInput, request: Request):
-        initialize_admin(db_path)
+        admin = require_admin(db_path, request)
         reader = csv.DictReader(io.StringIO(body.csv_text.strip()))
         added = 0
+        generated_creds = []
         with connect(db_path, write=True) as db:
-            users_data = _get_section(db, "users")
-            accounts = users_data.get("accounts", [])
-            existing_emails = {a["email"].lower() for a in accounts}
             for row in reader:
                 email = (row.get("email") or row.get("correo") or "").strip().lower()
-                if not email or "@" not in email or email in existing_emails:
+                if not email or "@" not in email:
                     continue
-                accounts.append(
-                    {
-                        "id": f"usr-{len(accounts) + 1:03d}",
-                        "name": (row.get("name") or row.get("nombre") or email.split("@")[0]).strip(),
-                        "email": email,
-                        "role": (row.get("role") or row.get("rol") or "Estudiante").strip(),
-                        "institution": (row.get("institution") or row.get("institucion") or "Red Binacional").strip(),
-                        "status": (row.get("status") or "active").strip(),
-                        "mfa": False,
-                        "sso": "CSV Import",
-                        "last_seen": "Recién importado",
-                    }
+                if db.execute("SELECT 1 FROM auth_users WHERE LOWER(email) = ?", (email,)).fetchone():
+                    continue
+                role = (row.get("role") or row.get("rol") or "Estudiante").strip()
+                if role not in {"Estudiante", "Docente", "Directivo / Orientador", "Administrador"}:
+                    role = "Estudiante"
+                temp_pw = f"Edu#{secrets.token_urlsafe(8)}9!"
+                uid = f"usr-{secrets.token_hex(4)}"
+                db.execute(
+                    """
+                    INSERT INTO auth_users
+                    (id, name, email, password_hash, role, institution, status, mfa, sso, last_seen, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, 'active', ?, 'CSV + Argon2id', 'Recién importado', ?)
+                    """,
+                    (
+                        uid,
+                        (row.get("name") or row.get("nombre") or email.split("@")[0]).strip(),
+                        email,
+                        hash_password(temp_pw),
+                        role,
+                        (row.get("institution") or row.get("institucion") or "Red Binacional").strip(),
+                        1 if role != "Estudiante" else 0,
+                        _now_iso(),
+                    ),
                 )
-                existing_emails.add(email)
+                generated_creds.append({"email": email, "temp_password": temp_pw})
                 added += 1
-            users_data["accounts"] = accounts
-            _save_section(db, "users", users_data)
             _log_audit(
                 db,
-                actor=body.actor,
-                actor_role="Administrador",
+                actor=admin["email"],
+                actor_role=admin["role"],
                 action="IMPORT_USERS_CSV",
                 target=f"{added} cuentas",
-                reason="Carga masiva CSV",
-                ip=_client_ip(request),
+                reason="Carga masiva CSV con contraseñas temporales Argon2id",
+                ip=client_ip(request),
             )
-        return {"ok": True, "added": added, "accounts": accounts}
+            accounts = list_auth_users(db)
+        return {"ok": True, "added": added, "generated_credentials": generated_creds, "accounts": accounts}
 
     @router.get("/users/export-csv")
-    def export_users_csv():
-        initialize_admin(db_path)
+    def export_users_csv(request: Request):
+        require_admin(db_path, request)
         with connect(db_path) as db:
-            accounts = _get_section(db, "users").get("accounts", [])
+            accounts = list_auth_users(db)
         buf = io.StringIO()
         writer = csv.writer(buf)
         writer.writerow(["id", "name", "email", "role", "institution", "status", "mfa", "sso"])
@@ -452,8 +586,8 @@ def build_admin_router(db_path: Path) -> APIRouter:
         )
 
     @router.get("/reports/export")
-    def export_report(kind: str = "adoption"):
-        initialize_admin(db_path)
+    def export_report(request: Request, kind: str = "adoption"):
+        require_admin(db_path, request)
         buf = io.StringIO()
         writer = csv.writer(buf)
         if kind == "audit":
@@ -480,7 +614,8 @@ def build_admin_router(db_path: Path) -> APIRouter:
         )
 
     @router.get("/health")
-    def health_check():
+    def health_check(request: Request):
+        require_admin(db_path, request)
         t0 = time.perf_counter()
         db_ok = True
         try:
@@ -491,23 +626,24 @@ def build_admin_router(db_path: Path) -> APIRouter:
         db_ms = round((time.perf_counter() - t0) * 1000, 2)
         disk = shutil.disk_usage(db_path.parent if db_path.parent.exists() else Path("."))
         engine = os.environ.get("EDUCORE_ENGINE", "auto")
-        has_groq_key = bool(os.environ.get("EDUCORE_LLM_API_KEY"))
+        has_api_key = bool(os.environ.get("EDUCORE_LLM_API_KEY"))
         return {
             "status": "healthy" if db_ok else "degraded",
             "checked_at": _now_iso(),
-            "database": {"ok": db_ok, "latency_ms": db_ms, "path": str(db_path)},
+            "database": {"ok": db_ok, "latency_ms": db_ms},
+            "security": {"hashing": "Argon2id (OWASP)", "session": "HttpOnly SHA-256 Cookie", "pii_filter": True},
             "vector_rag": {"ok": True, "detail": "Índice de citas literales operativo"},
             "ai_provider": {
                 "engine": engine,
-                "model": os.environ.get("EDUCORE_LLM_MODEL", "llama-3.1-8b-instant"),
-                "configured": has_groq_key or engine == "bedrock",
+                "model": _live_model(),
+                "configured": has_api_key or engine == "bedrock",
             },
             "disk_free_gb": round(disk.free / (1024**3), 2),
         }
 
     @router.post("/backups")
     def create_backup(body: ActionInput, request: Request):
-        initialize_admin(db_path)
+        admin = require_admin(db_path, request)
         backup_dir = db_path.parent / "backups"
         backup_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
@@ -523,42 +659,43 @@ def build_admin_router(db_path: Path) -> APIRouter:
             _save_section(db, "security_privacy", sec)
             _log_audit(
                 db,
-                actor=body.actor,
-                actor_role=body.actor_role,
+                actor=admin["email"],
+                actor_role=admin["role"],
                 action="CREATE_BACKUP",
                 target=dest.name,
                 reason=body.reason or "Respaldo manual desde panel",
-                ip=_client_ip(request),
+                ip=client_ip(request),
             )
         return {"ok": True, "backup": entry, "backups": sec["backups"]}
 
     @router.post("/sessions/revoke-all")
     def revoke_sessions(body: ActionInput, request: Request):
-        initialize_admin(db_path)
+        admin = require_admin(db_path, request)
         with connect(db_path, write=True) as db:
+            revoked_count = revoke_user_sessions(db, except_token_hash=admin["token_hash"])
             _log_audit(
                 db,
-                actor=body.actor,
-                actor_role=body.actor_role,
+                actor=admin["email"],
+                actor_role=admin["role"],
                 action="REVOKE_SESSIONS",
                 target=body.target,
-                reason=body.reason or "Cierre remoto de sesiones activas",
-                ip=_client_ip(request),
+                reason=f"{body.reason or 'Cierre remoto'} ({revoked_count} sesiones cerradas)",
+                ip=client_ip(request),
             )
-        return {"ok": True, "message": f"Sesiones cerradas remotamente para: {body.target}"}
+        return {"ok": True, "revoked": revoked_count, "message": f"Se cerraron {revoked_count} sesiones activas remotamente."}
 
     @router.post("/chat-access")
     def access_flagged_chat(body: ChatAccessRequest, request: Request):
-        initialize_admin(db_path)
+        admin = require_admin(db_path, request)
         with connect(db_path, write=True) as db:
             _log_audit(
                 db,
-                actor=body.actor,
-                actor_role=body.actor_role,
+                actor=admin["email"],
+                actor_role=admin["role"],
                 action="EXCEPTIONAL_CHAT_ACCESS",
                 target=body.chat_id,
                 reason=body.reason.strip(),
-                ip=_client_ip(request),
+                ip=client_ip(request),
                 details="Acceso excepcional auditado bajo política de privacidad (Sección 8).",
             )
         return {

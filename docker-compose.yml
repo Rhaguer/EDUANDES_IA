@@ -5,8 +5,12 @@ services:
       dockerfile: Dockerfile
     container_name: eduandes-ai
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     ports:
-      - "${HOST_PORT:-8000}:${PORT:-8000}"
+      - "127.0.0.1:${HOST_PORT:-8000}:${PORT:-8000}"
     environment:
       PORT: ${PORT:-8000}
       EDUCORE_ENGINE: ${EDUCORE_ENGINE:-openai_compat}
