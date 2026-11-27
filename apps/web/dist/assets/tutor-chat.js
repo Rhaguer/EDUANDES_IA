@@ -30,6 +30,7 @@
     if (!isLoggedIn()) return true;
     if (document.documentElement.classList.contains("ea-welcome-open")) return true;
     if (document.getElementById("ea-admin-console")) return true;
+    if (document.getElementById("ea-orientacion-console")) return true;
     if (document.getElementById("ea-maintenance-overlay")) return true;
     return false;
   }

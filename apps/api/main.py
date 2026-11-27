@@ -22,6 +22,7 @@ from .store import ATTEMPTS, PRACTICES, REVIEWS, connect, initialize
 from .courses import CourseService, build_router
 from .admin_panel import build_admin_router, initialize_admin
 from .native_core import native_status
+from .orientacion_panel import build_orientacion_router
 from .security_auth import build_auth_router, get_session_user, initialize_auth, is_https_request
 from .tutor_chat import build_tutor_router
 
@@ -318,6 +319,12 @@ def create_app(db_path: Path, adapter_dir: Path, *, engine=None) -> FastAPI:
                 return JSONResponse({"detail": "Sesión requerida."}, status_code=401)
             if path.startswith("/api/admin/") and user["role"] != "Administrador":
                 return JSONResponse({"detail": "Requiere rol Administrador."}, status_code=403)
+            if path.startswith("/api/orientacion/") and user["role"] not in {"Directivo / Orientador", "Administrador"}:
+                return JSONResponse({"detail": "Requiere rol Directivo / Orientador."}, status_code=403)
+            if user["role"] == "Directivo / Orientador" and method in {"POST", "PUT", "PATCH", "DELETE"}:
+                allowed_counselor_prefixes = ("/api/orientacion/", "/api/auth/", "/api/tutor/")
+                if not path.startswith(allowed_counselor_prefixes):
+                    return JSONResponse({"detail": "El rol Directivo / Orientador es de solo lectura académica."}, status_code=403)
             if user["role"] != "Administrador" and _is_maintenance_on():
                 return JSONResponse({"detail": "Plataforma en modo mantenimiento.", "maintenance": True}, status_code=503)
             # Restringir acciones exclusivas de docente/admin para estudiantes
@@ -357,6 +364,7 @@ def create_app(db_path: Path, adapter_dir: Path, *, engine=None) -> FastAPI:
     application.include_router(build_auth_router(db_path))
     application.include_router(build_router(course_service))
     application.include_router(build_admin_router(db_path))
+    application.include_router(build_orientacion_router(db_path))
     application.include_router(build_tutor_router(db_path, get_engine))
 
     @application.get("/api/health")

@@ -991,7 +991,9 @@
       sessionStorage.removeItem(AUTH_ROLE_KEY);
       sessionStorage.removeItem(AUTH_EMAIL_KEY);
       sessionStorage.removeItem(AUTH_IS_ADMIN_KEY);
+      sessionStorage.removeItem("eduandes.auth.is_counselor");
       sessionStorage.removeItem("eduandes.admin.view");
+      sessionStorage.removeItem("eduandes.orientacion.view");
     } catch (_) {}
     clearWorkspaceStorage();
     window.dispatchEvent(new CustomEvent("eduandes-auth-changed", { detail: { email: null, role: null } }));
@@ -1309,19 +1311,22 @@
         .then(function (data) {
           var u = data.user || {};
           var isAdm = u.role === "Administrador";
+          var isCounselor = u.role === "Directivo / Orientador" || u.view_role === "counselor";
           var viewRole = u.view_role === "student" ? "student" : "teacher";
           clearWorkspaceStorage();
           try {
             sessionStorage.setItem(AUTH_ROLE_KEY, viewRole);
             sessionStorage.setItem(AUTH_EMAIL_KEY, u.email || email);
             sessionStorage.setItem(AUTH_IS_ADMIN_KEY, isAdm ? "1" : "0");
+            sessionStorage.setItem("eduandes.auth.is_counselor", isCounselor ? "1" : "0");
             sessionStorage.setItem("eduandes.admin.view", isAdm ? "1" : "0");
+            sessionStorage.setItem("eduandes.orientacion.view", isCounselor ? "1" : "0");
             sessionStorage.setItem(WELCOME_STORAGE_KEY, "1");
             localStorage.setItem("educore.auth-user", u.email || email);
             localStorage.setItem(VIEW_MODE_KEY, viewRole);
             if (u.student_id) localStorage.setItem("educore.student-id", u.student_id);
           } catch (_) {}
-          window.location.hash = isAdm ? "#/admin" : "#/";
+          window.location.hash = isAdm ? "#/admin" : (isCounselor ? "#/orientacion" : "#/");
           window.location.reload();
         })
         .catch(function (err) {
@@ -1374,6 +1379,7 @@
         if (data && data.authenticated && data.user) {
           var u = data.user;
           var isAdm = u.role === "Administrador";
+          var isCounselor = u.role === "Directivo / Orientador" || u.view_role === "counselor";
           var viewRole = u.view_role === "student" ? "student" : "teacher";
           try {
             var prevUser = localStorage.getItem("educore.auth-user");
@@ -1384,11 +1390,15 @@
             sessionStorage.setItem(AUTH_ROLE_KEY, viewRole);
             sessionStorage.setItem(AUTH_EMAIL_KEY, u.email || "");
             sessionStorage.setItem(AUTH_IS_ADMIN_KEY, isAdm ? "1" : "0");
+            sessionStorage.setItem("eduandes.auth.is_counselor", isCounselor ? "1" : "0");
             sessionStorage.setItem(WELCOME_STORAGE_KEY, "1");
             localStorage.setItem(VIEW_MODE_KEY, viewRole);
             if (u.student_id) localStorage.setItem("educore.student-id", u.student_id);
             if (isAdm && sessionStorage.getItem("eduandes.admin.view") === null) {
               sessionStorage.setItem("eduandes.admin.view", "1");
+            }
+            if (isCounselor && sessionStorage.getItem("eduandes.orientacion.view") === null) {
+              sessionStorage.setItem("eduandes.orientacion.view", "1");
             }
           } catch (_) {}
           enforceRoleIsolation();
@@ -1396,14 +1406,16 @@
           patchEngineUi();
           renderGlobalSiteNotices(data.site, isAdm);
           fetch("/api/engine/status", { credentials: "same-origin" }).catch(function () {});
-          window.dispatchEvent(new CustomEvent("eduandes-auth-changed", { detail: { email: u.email, role: viewRole, isAdmin: isAdm } }));
+          window.dispatchEvent(new CustomEvent("eduandes-auth-changed", { detail: { email: u.email, role: viewRole, isAdmin: isAdm, isCounselor: isCounselor } }));
         } else {
           try {
             sessionStorage.removeItem(WELCOME_STORAGE_KEY);
             sessionStorage.removeItem(AUTH_ROLE_KEY);
             sessionStorage.removeItem(AUTH_EMAIL_KEY);
             sessionStorage.removeItem(AUTH_IS_ADMIN_KEY);
+            sessionStorage.removeItem("eduandes.auth.is_counselor");
             sessionStorage.removeItem("eduandes.admin.view");
+            sessionStorage.removeItem("eduandes.orientacion.view");
           } catch (_) {}
           clearWorkspaceStorage();
           showWelcomeScreen();

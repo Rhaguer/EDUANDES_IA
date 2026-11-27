@@ -40,7 +40,7 @@ _IP_LOGINS: dict[str, deque[float]] = defaultdict(deque)
 ROLE_TO_VIEW = {
     "Administrador": "admin",
     "Docente": "teacher",
-    "Directivo / Orientador": "teacher",
+    "Directivo / Orientador": "counselor",
     "Estudiante": "student",
 }
 

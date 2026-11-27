@@ -65,7 +65,8 @@ body.ea-admin-open {
   overflow: hidden !important;
 }
 
-#ea-admin-console {
+#ea-admin-console,
+#ea-orientacion-console {
   position: fixed;
   inset: 0;
   z-index: 9500;
