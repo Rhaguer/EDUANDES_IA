@@ -51,15 +51,14 @@
       },
     },
     {
-      title: "5. Responde como Estudiante",
+      title: "5. Explora Mis unidades, Prácticas y AndesBot",
       role: "Estudiante",
-      selector: ".ref-mode-switch",
+      selector: ".ref-rail nav a:nth-child(2)",
       body:
-        "Cambia al modo Estudiante en el interruptor superior, crea o elige un perfil y completa la práctica publicada para registrar tus respuestas.",
-      actionLabel: "Cambiar a Estudiante",
+        "En «Mis unidades» revisas tus asignaturas y materiales PDF, en «Prácticas» respondes actividades publicadas y con el robot flotante AndesBot resuelves cualquier duda al instante.",
+      actionLabel: "Abrir Mis unidades",
       action: function () {
-        switchMode("student");
-        window.location.hash = "#/";
+        window.location.hash = "#/asignaturas";
       },
     },
     {
@@ -82,12 +81,8 @@
   var AUTH_IS_ADMIN_KEY = "eduandes.auth.is_admin";
   var VIEW_MODE_KEY = "educore.view-mode";
   var TEACHER_ONLY_HASHES = [
-    "#/asignaturas",
-    "#/curso",
     "#/estudiantes",
     "#/revision-actividad",
-    "#/materiales",
-    "#/actividades",
   ];
   var currentIndex = 0;
   var overlay = null;
@@ -282,7 +277,7 @@
         return true;
       }
     }
-    if (h.indexOf("#/unidad/") === 0 && (h.indexOf("/materials") !== -1 || h.indexOf("/preparar") !== -1)) {
+    if (h.indexOf("#/unidad/") === 0 && h.indexOf("/preparar") !== -1) {
       return true;
     }
     return false;

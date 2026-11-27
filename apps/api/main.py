@@ -324,7 +324,8 @@ def create_app(db_path: Path, adapter_dir: Path, *, engine=None) -> FastAPI:
             if user["role"] == "Estudiante" and method in {"POST", "PUT", "PATCH", "DELETE"}:
                 allowed_student_prefixes = ("/api/quiz-attempts", "/api/reinforcements", "/api/attempts", "/api/auth/", "/api/tutor/")
                 allowed_student_suffixes = ("/attempts", "/submit", "/reinforcement", "/explanation")
-                if not (path.startswith(allowed_student_prefixes) or path.endswith(allowed_student_suffixes)):
+                own_profile_edit = method == "PUT" and path.startswith("/api/students/")
+                if not (own_profile_edit or path.startswith(allowed_student_prefixes) or path.endswith(allowed_student_suffixes)):
                     return JSONResponse({"detail": "Acción no permitida para el rol Estudiante."}, status_code=403)
 
         response = await call_next(request)

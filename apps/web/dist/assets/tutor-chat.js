@@ -70,9 +70,9 @@
       ];
     }
     return [
+      "¿Qué es una red neuronal artificial y cómo aprende?",
       "¿Qué diferencia el aprendizaje supervisado del no supervisado?",
-      "Explícame cómo funciona una red neuronal",
-      "¿Qué aplicaciones tiene la IA generativa según el material?",
+      "¿Cuáles son las principales aplicaciones de la IA generativa?",
     ];
   }
 
@@ -97,7 +97,10 @@
 
   function formatReply(text) {
     return esc(text)
+      .replace(/^###\s*(.+)$/gm, "<strong>$1</strong>")
+      .replace(/^##\s*(.+)$/gm, "<strong>$1</strong>")
       .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/^\s*[-*]\s+/gm, "• ")
       .replace(/\n/g, "<br>");
   }
 
@@ -124,21 +127,16 @@
 
     var msgsHtml = state.messages.length
       ? state.messages.map(function (m) {
-          var srcHtml = (m.sources && m.sources.length)
-            ? "<div class='ea-bot-sources'>" + m.sources.map(function (s) {
-                return "<span class='ea-bot-src-pill' title='" + esc(s.course_code + " · " + s.filename) + "'>&#128196; " + esc(s.filename.replace(/\.pdf$/i, "")) + " · " + esc(s.label) + "</span>";
-              }).join("") + "</div>"
-            : "";
           return (
             "<div class='ea-bot-msg is-" + m.role + "'>" +
-              "<div class='ea-bot-bubble'>" + formatReply(m.content) + srcHtml + "</div>" +
+              "<div class='ea-bot-bubble'>" + formatReply(m.content) + "</div>" +
             "</div>"
           );
         }).join("")
       : (
         "<div class='ea-bot-welcome'>" +
           "<p><strong>¡Hola! Soy AndesBot</strong>, tu tutor IA binacional (Chile – Ecuador).</p>" +
-          "<p>Pregúntame cualquier duda sobre el material PDF de tu asignatura y te guiaré con citas verificadas.</p>" +
+          "<p>Pregúntame cualquier duda sobre el tema que estés estudiando y te explicaré de forma clara y concisa.</p>" +
           "<div class='ea-bot-chips'>" +
             chips.map(function (q) {
               return "<button type='button' class='ea-bot-chip' data-bot-q='" + esc(q) + "'>" + esc(q) + "</button>";
@@ -148,7 +146,7 @@
       );
 
     var typingHtml = state.loading
-      ? "<div class='ea-bot-msg is-assistant'><div class='ea-bot-bubble is-typing'>Consultando material oficial y Groq IA...</div></div>"
+      ? "<div class='ea-bot-msg is-assistant'><div class='ea-bot-bubble is-typing'>Pensando una explicación clara...</div></div>"
       : "";
 
     var panelHtml = state.open
@@ -157,7 +155,7 @@
           "<header class='ea-bot-head'>" +
             "<div class='ea-bot-head-left'>" +
               "<span class='ea-bot-avatar-sm'><img src='/assets/eduandes-bot.jpg' alt='AndesBot' /></span>" +
-              "<div><strong>AndesBot · Tutor IA</strong><small>Groq + RAG verificado · Chile–Ecuador</small></div>" +
+              "<div><strong>AndesBot · Tutor IA</strong><small>Groq IA · Asistente Chile–Ecuador</small></div>" +
             "</div>" +
             "<div class='ea-bot-head-actions'>" +
               "<button type='button' class='ea-bot-icon-btn' id='ea-bot-clear' title='Limpiar conversación'>&#8635;</button>" +
@@ -276,7 +274,6 @@
         state.messages.push({
           role: "assistant",
           content: data.reply || "No recibí respuesta del tutor.",
-          sources: data.sources || [],
         });
         renderWidget();
       })
