@@ -1241,7 +1241,13 @@
                 "</div>" +
                 '<div class="ea-login-field">' +
                   '<label for="ea-login-password">Contraseña</label>' +
-                  '<input id="ea-login-password" class="ea-login-input" type="password" autocomplete="current-password" placeholder="Ingresa tu contraseña" required />' +
+                  '<div class="ea-login-pw-wrap">' +
+                    '<input id="ea-login-password" class="ea-login-input ea-login-pw-input" type="password" autocomplete="current-password" placeholder="Ingresa tu contraseña" required />' +
+                    '<button type="button" class="ea-login-pw-toggle" id="ea-login-pw-toggle" aria-label="Mostrar contraseña" aria-pressed="false" title="Mostrar u ocultar contraseña">' +
+                      '<svg class="ea-eye-open" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>' +
+                      '<svg class="ea-eye-closed" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>' +
+                    "</button>" +
+                  "</div>" +
                 "</div>" +
               "</div>" +
               '<p class="ea-login-error" role="alert" aria-live="polite"></p>' +
@@ -1262,8 +1268,23 @@
     var form = screen.querySelector(".ea-login-form");
     var emailInput = screen.querySelector("#ea-login-email");
     var passwordInput = screen.querySelector("#ea-login-password");
+    var pwToggle = screen.querySelector("#ea-login-pw-toggle");
     var errorEl = screen.querySelector(".ea-login-error");
     var submitBtn = screen.querySelector(".ea-login-submit-btn");
+
+    if (pwToggle && passwordInput) {
+      pwToggle.addEventListener("click", function () {
+        var showing = passwordInput.type === "text";
+        passwordInput.type = showing ? "password" : "text";
+        pwToggle.setAttribute("aria-pressed", showing ? "false" : "true");
+        pwToggle.setAttribute("aria-label", showing ? "Mostrar contraseña" : "Ocultar contraseña");
+        var eyeOpen = pwToggle.querySelector(".ea-eye-open");
+        var eyeClosed = pwToggle.querySelector(".ea-eye-closed");
+        if (eyeOpen) eyeOpen.style.display = showing ? "" : "none";
+        if (eyeClosed) eyeClosed.style.display = showing ? "none" : "";
+        passwordInput.focus();
+      });
+    }
 
     form.addEventListener("submit", function (e) {
       e.preventDefault();

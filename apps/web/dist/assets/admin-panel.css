@@ -847,3 +847,40 @@ details.engine-indicator > summary {
     font-size: 16px;
   }
 }
+
+/* Botón ver/ocultar contraseña dentro del input */
+.ea-login-pw-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+.ea-login-card-modern .ea-login-pw-input {
+  padding-right: 40px !important;
+}
+.ea-login-pw-toggle {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #556582;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.ea-login-pw-toggle:hover {
+  color: #0039a6;
+  background: #eef4ff;
+}
+.ea-login-pw-toggle svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
