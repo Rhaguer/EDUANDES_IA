@@ -658,14 +658,15 @@ def build_admin_router(db_path: Path) -> APIRouter:
             filename = "eduandes-audit-logs.csv"
         elif kind == "costs":
             writer.writerow(["institucion", "curso", "tokens_consumidos", "costo_estimado_usd", "latencia_ms", "tasa_error_pct"])
-            writer.writerow(["Liceo Bicentenario Santiago", "Matemáticas 2° Medio A", "412500", "0.49", "410", "0.4"])
-            writer.writerow(["Unidad Educativa Quito Norte", "Lengua y Literatura 8° Básico", "289100", "0.35", "385", "0.2"])
+            writer.writerow(["Red Binacional Chile-Ecuador", "Matemáticas (EDU2026MAT)", "0", "0.00", "0", "0.0"])
+            writer.writerow(["Red Binacional Chile-Ecuador", "Informática (EDU2026INF)", "0", "0.00", "0", "0.0"])
+            writer.writerow(["Red Binacional Chile-Ecuador", "Inteligencia Artificial (EDU2026IA)", "0", "0.00", "0", "0.0"])
             filename = "eduandes-costos-ia.csv"
         else:
             writer.writerow(["metrica", "valor", "periodo"])
-            writer.writerow(["Usuarios activos diarios (DAU)", "84", "Últimos 7 días"])
-            writer.writerow(["Usuarios activos mensuales (MAU)", "216", "Mes actual"])
-            writer.writerow(["Tema con mayor consulta", "Ecuaciones lineales e interpretación de textos", "Mes actual"])
+            writer.writerow(["Usuarios activos diarios (DAU)", "0", "Inicio limpio"])
+            writer.writerow(["Usuarios activos mensuales (MAU)", "0", "Mes actual"])
+            writer.writerow(["Evaluaciones e intentos registrados", "0", "Mes actual"])
             filename = "eduandes-analiticas.csv"
         return Response(
             content=buf.getvalue(),

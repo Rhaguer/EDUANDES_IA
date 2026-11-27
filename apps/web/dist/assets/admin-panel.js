@@ -339,15 +339,15 @@
       "<div class='ea-adm-grid'>" +
         "<div class='ea-adm-kpi'><div class='ea-adm-kpi-label'>Unidades / Materiales (BD real)</div><div class='ea-adm-kpi-value'>" + esc(s.units || 0) + " / " + esc(s.materials || 0) + "</div><div class='ea-adm-kpi-sub'>Sesiones activas ahora: " + esc(s.active_sessions || 1) + "</div></div>" +
         "<div class='ea-adm-kpi'><div class='ea-adm-kpi-label'>Evaluaciones e Intentos (BD real)</div><div class='ea-adm-kpi-value'>" + esc(s.quizzes || 0) + " / " + esc(s.attempts || 0) + "</div><div class='ea-adm-kpi-sub'>Preguntas revisadas: " + esc(s.questions || 0) + "</div></div>" +
-        "<div class='ea-adm-kpi'><div class='ea-adm-kpi-label'>Usuarios Activos (DAU / MAU)</div><div class='ea-adm-kpi-value'>84 / 216</div><div class='ea-adm-kpi-sub'>Horario pico: 10:00 - 12:00 y 16:00 - 18:00</div></div>" +
-        "<div class='ea-adm-kpi'><div class='ea-adm-kpi-label'>Consumo y Costo IA (Mes)</div><div class='ea-adm-kpi-value'>701.6K tok</div><div class='ea-adm-kpi-sub'>Costo est.: $0.84 USD · Latencia: 398 ms · Error: 0.3%</div></div>" +
+        "<div class='ea-adm-kpi'><div class='ea-adm-kpi-label'>Usuarios Activos (DAU / MAU)</div><div class='ea-adm-kpi-value'>0 / 0</div><div class='ea-adm-kpi-sub'>Sin historial previo · Listo para iniciar</div></div>" +
+        "<div class='ea-adm-kpi'><div class='ea-adm-kpi-label'>Consumo y Costo IA (Mes)</div><div class='ea-adm-kpi-value'>0 tok</div><div class='ea-adm-kpi-sub'>Costo est.: $0.00 USD · Latencia: 0 ms · Error: 0.0%</div></div>" +
       "</div>" +
 
       "<div class='ea-adm-card'><h3>Analíticas Pedagógicas Agregadas (Privacidad preservada)</h3>" +
-        "<div class='ea-adm-table-wrap'><table class='ea-adm-table'><thead><tr><th>Materia / Tema</th><th>Consultas (30 días)</th><th>Índice de dificultad</th><th>Recomendación</th></tr></thead><tbody>" +
-          "<tr><td>Matemáticas · Ecuaciones lineales y sistemas</td><td>412</td><td><span class='ea-adm-badge is-warn'>Alta</span></td><td>Reforzar con guía paso a paso en 2° Medio A</td></tr>" +
-          "<tr><td>Lenguaje · Inferencia y cita literal</td><td>289</td><td><span class='ea-adm-badge'>Media</span></td><td>Activar método socrático estricto</td></tr>" +
-          "<tr><td>Ciencias · Método científico</td><td>194</td><td><span class='ea-adm-badge is-ok'>Baja</span></td><td>Desempeño esperado</td></tr>" +
+        "<div class='ea-adm-table-wrap'><table class='ea-adm-table'><thead><tr><th>Materia / Tema</th><th>Consultas (30 días)</th><th>Índice de dificultad</th><th>Estado</th></tr></thead><tbody>" +
+          "<tr><td>Matemáticas · Probabilidad</td><td>0</td><td><span class='ea-adm-badge'>Sin datos</span></td><td>Listo para nuevas prácticas</td></tr>" +
+          "<tr><td>Informática · Ciberseguridad y Desarrollo Web</td><td>0</td><td><span class='ea-adm-badge'>Sin datos</span></td><td>Listo para nuevas prácticas</td></tr>" +
+          "<tr><td>Inteligencia Artificial · ML, Redes Neuronales e IA Generativa</td><td>0</td><td><span class='ea-adm-badge'>Sin datos</span></td><td>Listo para nuevas prácticas</td></tr>" +
         "</tbody></table></div>" +
       "</div>"
     );
