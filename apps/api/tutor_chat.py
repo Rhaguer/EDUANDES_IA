@@ -12,7 +12,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from .native_core import native_status, normalize_text
+from .native_core import native_status, normalized as normalize_text
 from .security_auth import require_authenticated
 from .store import connect
 
