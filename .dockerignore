@@ -1,0 +1,15 @@
+.git
+.venv
+.env
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.cache
+logs
+data
+artifacts
+material
+src
+*.zip
+*.cmd

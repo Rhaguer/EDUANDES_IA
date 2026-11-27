@@ -79,10 +79,12 @@
   var A11Y_KEY = "eduandes.a11y.v1";
   var WELCOME_STORAGE_KEY = "eduandes.welcome.entered";
   var AUTH_ROLE_KEY = "eduandes.auth.role";
+  var AUTH_EMAIL_KEY = "eduandes.auth.email";
   var VIEW_MODE_KEY = "educore.view-mode";
   var CREDENTIALS = {
-    "docente@educhile.cl": { password: "123456", role: "teacher", label: "Docente" },
-    "estudiante@educhile.cl": { password: "123456", role: "student", label: "Estudiante" },
+    "administrador@ecuachile.cl": { password: "123456", role: "teacher", label: "Administrador" },
+    "docente@ecuachile.cl": { password: "123456", role: "teacher", label: "Docente" },
+    "estudiante@ecuachile.cl": { password: "123456", role: "student", label: "Estudiante" },
   };
   var TEACHER_ONLY_HASHES = [
     "#/asignaturas",
@@ -962,8 +964,10 @@
     try {
       sessionStorage.removeItem(WELCOME_STORAGE_KEY);
       sessionStorage.removeItem(AUTH_ROLE_KEY);
+      sessionStorage.removeItem(AUTH_EMAIL_KEY);
       localStorage.removeItem("educore.student-id");
     } catch (_) {}
+    window.dispatchEvent(new CustomEvent("eduandes-auth-changed", { detail: { email: null, role: null } }));
     window.location.hash = "#/";
     showWelcomeScreen();
     announceVisual("Sesión cerrada. Regresando al inicio de sesión de EduAndes AI.");
@@ -989,9 +993,12 @@
       }
 
       var role = getAuthRole();
+      var authEmail = "";
+      try { authEmail = sessionStorage.getItem(AUTH_EMAIL_KEY) || ""; } catch (_) {}
+      var isAdmin = authEmail === "administrador@ecuachile.cl";
       var roleBadge = topbar.querySelector(".ea-role-badge");
       if (role) {
-        var wantedText = role === "student" ? "Estudiante" : "Docente";
+        var wantedText = isAdmin ? "Administrador" : (role === "student" ? "Estudiante" : "Docente");
         if (!roleBadge) {
           roleBadge = document.createElement("span");
           roleBadge.className = "ea-role-badge";
@@ -1006,6 +1013,21 @@
         }
         if (roleBadge.textContent !== wantedText) {
           roleBadge.textContent = wantedText;
+        }
+        var adminBtn = topbar.querySelector(".ea-admin-nav-btn");
+        if (isAdmin && !adminBtn) {
+          adminBtn = document.createElement("button");
+          adminBtn.type = "button";
+          adminBtn.className = "ea-admin-nav-btn";
+          adminBtn.textContent = "Panel Admin";
+          adminBtn.addEventListener("click", function () {
+            try { sessionStorage.setItem("eduandes.admin.view", "1"); } catch (_) {}
+            window.location.hash = "#/admin";
+            window.dispatchEvent(new CustomEvent("eduandes-auth-changed", { detail: { email: authEmail, role: role } }));
+          });
+          topbar.appendChild(adminBtn);
+        } else if (!isAdmin && adminBtn && adminBtn.parentNode) {
+          adminBtn.parentNode.removeChild(adminBtn);
         }
       } else if (roleBadge && roleBadge.parentNode) {
         roleBadge.parentNode.removeChild(roleBadge);
@@ -1168,53 +1190,64 @@
           hoistedChileFlagHtml() +
         "</div>" +
         '<main class="ea-welcome-center">' +
-          '<div class="ea-welcome-card">' +
-            '<div class="ea-welcome-badges">' +
-              binationalCrestSvg() +
-              "<span>Encuentro Binacional Chile – Ecuador</span>" +
-            "</div>" +
-            '<div class="ea-welcome-title">EduAndes <b>AI</b></div>' +
+          '<div class="ea-welcome-card ea-login-card-modern">' +
+            '<h2 class="ea-login-h2">EduAndes AI · Iniciar sesión</h2>' +
+            '<p class="ea-login-sub">Ingresa tus credenciales para continuar.</p>' +
             '<form class="ea-login-form" novalidate>' +
               '<div class="ea-login-fields">' +
                 '<div class="ea-login-field">' +
-                  '<label for="ea-login-email">Correo institucional</label>' +
-                  '<input id="ea-login-email" class="ea-login-input" type="email" autocomplete="username" placeholder="correo@educhile.cl" required />' +
+                  '<label for="ea-login-email">Usuario</label>' +
+                  '<input id="ea-login-email" class="ea-login-input" type="email" autocomplete="username" placeholder="correo@ecuachile.cl" required />' +
                 "</div>" +
                 '<div class="ea-login-field">' +
-                  '<label for="ea-login-password">Clave</label>' +
-                  '<input id="ea-login-password" class="ea-login-input" type="password" autocomplete="current-password" placeholder="••••••" required />' +
+                  '<label for="ea-login-password">Contraseña</label>' +
+                  '<input id="ea-login-password" class="ea-login-input" type="password" autocomplete="current-password" placeholder="Ingresa tu contraseña" required />' +
                 "</div>" +
               "</div>" +
               '<p class="ea-login-error" role="alert" aria-live="polite"></p>' +
-              '<button type="submit" class="ea-welcome-enter-pill ea-login-submit" aria-label="Entrar a EduAndes AI">' +
-                'Entrar <span aria-hidden="true">&#8594;</span>' +
+              '<button type="submit" class="ea-login-submit-btn" aria-label="Ingresar a EduAndes AI">' +
+                "Ingresar" +
               "</button>" +
             "</form>" +
-            '<p class="ea-welcome-subtitle">ODS 4 · Educación de Calidad e Inclusiva con IA Verificada</p>' +
+            '<div class="ea-login-demo-box">' +
+              '<small class="ea-login-demo-label">Acceso rápido (Modo Demo)</small>' +
+              '<div class="ea-login-demo-grid">' +
+                '<button type="button" class="ea-login-demo-btn" data-demo-email="administrador@ecuachile.cl">Admin</button>' +
+                '<button type="button" class="ea-login-demo-btn" data-demo-email="docente@ecuachile.cl">Docente</button>' +
+                '<button type="button" class="ea-login-demo-btn" data-demo-email="estudiante@ecuachile.cl">Estudiante</button>' +
+              "</div>" +
+            "</div>" +
           "</div>" +
         "</main>" +
         '<div class="ea-welcome-flag-slot ea-slot-ec">' +
           hoistedEcuadorFlagHtml() +
         "</div>" +
-      "</div>" +
-      '<footer class="ea-welcome-footer">' +
-        '<span class="ea-welcome-ribbon" aria-hidden="true"></span>' +
-        '<span class="ea-welcome-hack">Hackathon Chile – Ecuador 2026</span>' +
-      "</footer>";
+      "</div>";
 
     var form = screen.querySelector(".ea-login-form");
     var emailInput = screen.querySelector("#ea-login-email");
     var passwordInput = screen.querySelector("#ea-login-password");
     var errorEl = screen.querySelector(".ea-login-error");
+    var submitBtn = screen.querySelector(".ea-login-submit-btn");
+    screen.querySelectorAll(".ea-login-demo-btn").forEach(function (demoBtn) {
+      demoBtn.addEventListener("click", function () {
+        emailInput.value = demoBtn.getAttribute("data-demo-email") || "";
+        passwordInput.value = "123456";
+        errorEl.textContent = "";
+        if (submitBtn) submitBtn.focus();
+      });
+    });
 
-    function enterSystem(role) {
+    function enterSystem(role, email) {
       try {
         sessionStorage.setItem(AUTH_ROLE_KEY, role);
+        sessionStorage.setItem(AUTH_EMAIL_KEY, email || "");
+        sessionStorage.setItem("eduandes.admin.view", email === "administrador@ecuachile.cl" ? "1" : "0");
         sessionStorage.setItem(WELCOME_STORAGE_KEY, "1");
         localStorage.setItem(VIEW_MODE_KEY, role);
       } catch (_) {}
       switchMode(role);
-      window.location.hash = "#/";
+      window.location.hash = email === "administrador@ecuachile.cl" ? "#/admin" : "#/";
       ensureBannerButton();
       document.documentElement.classList.remove("ea-welcome-open");
       document.body.classList.remove("ea-welcome-open");
@@ -1222,10 +1255,13 @@
       setTimeout(function () {
         if (screen.parentNode) screen.parentNode.removeChild(screen);
       }, 280);
+      window.dispatchEvent(new CustomEvent("eduandes-auth-changed", { detail: { email: email || "", role: role } }));
       announceVisual(
-        role === "student"
-          ? "Sesión iniciada como Estudiante."
-          : "Sesión iniciada como Docente."
+        email === "administrador@ecuachile.cl"
+          ? "Sesión iniciada como Administrador."
+          : (role === "student"
+            ? "Sesión iniciada como Estudiante."
+            : "Sesión iniciada como Docente.")
       );
     }
 
@@ -1240,7 +1276,7 @@
         return;
       }
       errorEl.textContent = "";
-      enterSystem(account.role);
+      enterSystem(account.role, email);
     });
 
     document.documentElement.classList.add("ea-welcome-open");

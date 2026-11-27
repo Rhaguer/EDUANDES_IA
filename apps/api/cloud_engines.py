@@ -8,9 +8,11 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from threading import Lock
-import urllib.error
-import urllib.request
+import time
+
+import httpx
 
 from .text_safety import reject_chat_markers as _reject_chat_markers
 
@@ -184,7 +186,7 @@ class OpenAICompatibleEngine(_CloudEngineBase):
         super().__init__()
         self.base_url = (base_url or os.environ.get("EDUCORE_LLM_BASE_URL") or "https://api.groq.com/openai/v1").rstrip("/")
         self.api_key = api_key or os.environ.get("EDUCORE_LLM_API_KEY", "")
-        self.model = model or os.environ.get("EDUCORE_LLM_MODEL") or "llama-3.1-8b-instant"
+        self.model = model or os.environ.get("EDUCORE_LLM_MODEL") or "qwen/qwen3.8-27b"
         if not self.api_key:
             raise RuntimeError("Falta EDUCORE_LLM_API_KEY para el motor cloud HTTP.")
 
@@ -205,7 +207,7 @@ class OpenAICompatibleEngine(_CloudEngineBase):
     def course_completion(self, instructions: str, content: str, *, creative: bool, seed: int, tokens: int) -> str:
         _reject_chat_markers(instructions)
         _reject_chat_markers(content)
-        payload = json.dumps({
+        payload = {
             "model": self.model,
             "messages": [
                 {"role": "system", "content": instructions},
@@ -213,22 +215,39 @@ class OpenAICompatibleEngine(_CloudEngineBase):
             ],
             "max_tokens": int(tokens),
             "temperature": 0.65 if creative else 0.0,
-        }).encode("utf-8")
-        request = urllib.request.Request(
-            f"{self.base_url}/chat/completions",
-            data=payload,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.api_key}",
-            },
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=60) as response:
-                data = json.loads(response.read().decode("utf-8"))
-        except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="ignore")[:300]
-            raise RuntimeError(f"Error HTTP {exc.code} del proveedor LLM: {detail}") from exc
+        }
+        data = None
+        for attempt in range(5):
+            try:
+                response = httpx.post(
+                    f"{self.base_url}/chat/completions",
+                    json=payload,
+                    headers={
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {self.api_key}",
+                    },
+                    timeout=60.0,
+                )
+                if response.status_code == 429 and attempt < 4:
+                    retry_after = response.headers.get("retry-after")
+                    wait_s = float(retry_after) if retry_after and retry_after.replace(".", "", 1).isdigit() else 0.0
+                    if wait_s <= 0:
+                        m = re.search(r"try again in\s*([0-9]+(?:\.[0-9]+)?)s", response.text, re.IGNORECASE)
+                        wait_s = float(m.group(1)) if m else (3.0 * (attempt + 1))
+                    wait_s = min(max(wait_s + 0.5, 1.5), 25.0)
+                    LOGGER.warning("Rate limit 429 del proveedor LLM; reintentando en %.2fs (intento %d/4)", wait_s, attempt + 1)
+                    time.sleep(wait_s)
+                    continue
+                response.raise_for_status()
+                data = response.json()
+                break
+            except httpx.HTTPStatusError as exc:
+                detail = exc.response.text[:300]
+                raise RuntimeError(f"Error HTTP {exc.response.status_code} del proveedor LLM: {detail}") from exc
+            except httpx.HTTPError as exc:
+                raise RuntimeError(f"Error de conexión con el proveedor LLM: {exc}") from exc
+        if data is None:
+            raise RuntimeError("El proveedor LLM superó el límite de reintentos.")
         choices = data.get("choices") or []
         if not choices:
             raise RuntimeError("El proveedor LLM no devolvió respuesta.")

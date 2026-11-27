@@ -19,6 +19,7 @@ from pypdf.errors import PyPdfError
 
 from .store import ATTEMPTS, PRACTICES, REVIEWS, connect, initialize
 from .courses import CourseService, build_router
+from .admin_panel import build_admin_router, initialize_admin
 
 
 MAX_CONTEXT = 50_000
@@ -263,6 +264,7 @@ def create_app(db_path: Path, adapter_dir: Path, *, engine=None) -> FastAPI:
     async def lifespan(_: FastAPI):
         initialize(db_path)
         course_service.initialize()
+        initialize_admin(db_path)
         try:
             yield
         finally:
@@ -272,6 +274,7 @@ def create_app(db_path: Path, adapter_dir: Path, *, engine=None) -> FastAPI:
     application.add_middleware(GZipMiddleware, minimum_size=500)
     application.state.course_service = course_service
     application.include_router(build_router(course_service))
+    application.include_router(build_admin_router(db_path))
 
     @application.get("/api/engine/status")
     def light_status():

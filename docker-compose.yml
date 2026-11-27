@@ -1,0 +1,18 @@
+services:
+  eduandes:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: eduandes-ai
+    restart: unless-stopped
+    ports:
+      - "${HOST_PORT:-8000}:${PORT:-8000}"
+    environment:
+      PORT: ${PORT:-8000}
+      EDUCORE_ENGINE: ${EDUCORE_ENGINE:-openai_compat}
+      EDUCORE_DB: /app/data/educore.sqlite3
+      EDUCORE_LLM_BASE_URL: ${EDUCORE_LLM_BASE_URL:-https://api.groq.com/openai/v1}
+      EDUCORE_LLM_API_KEY: ${EDUCORE_LLM_API_KEY:?Configura EDUCORE_LLM_API_KEY en .env}
+      EDUCORE_LLM_MODEL: ${EDUCORE_LLM_MODEL:-qwen/qwen3.8-27b}
+    volumes:
+      - ./data:/app/data
