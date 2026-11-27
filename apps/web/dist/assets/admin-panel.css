@@ -60,6 +60,11 @@
 }
 
 /* Consola Admin full-screen */
+html.ea-admin-open,
+body.ea-admin-open {
+  overflow: hidden !important;
+}
+
 #ea-admin-console {
   position: fixed;
   inset: 0;
@@ -526,6 +531,9 @@ details.engine-indicator {
   max-width: 100% !important;
   margin-right: 6px !important;
 }
+details.engine-indicator[open] {
+  z-index: 9000 !important;
+}
 details.engine-indicator > summary {
   display: inline-flex !important;
   align-items: center !important;
@@ -826,22 +834,22 @@ details.engine-indicator > summary {
   cursor: wait;
 }
 
-@media (max-width: 540px) {
+@media (max-width: 700px) {
   #ea-tutor-root {
-    right: 14px;
-    bottom: 14px;
+    right: 12px;
+    bottom: 76px;
   }
   .ea-bot-fab {
-    width: 60px;
-    height: 60px;
+    width: 56px;
+    height: 56px;
   }
   .ea-bot-panel {
     right: 10px;
     left: 10px;
-    bottom: 84px;
+    bottom: 142px;
     width: auto;
     max-width: none;
-    height: 70vh;
+    height: 64vh;
   }
   .ea-bot-form input {
     font-size: 16px;

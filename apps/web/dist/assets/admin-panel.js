@@ -117,9 +117,13 @@
     var shouldShow = wantAdmin && isAdminLoggedIn();
     var existing = document.getElementById("ea-admin-console");
     if (!shouldShow) {
+      document.documentElement.classList.remove("ea-admin-open");
+      document.body.classList.remove("ea-admin-open");
       if (existing) existing.remove();
       return;
     }
+    document.documentElement.classList.add("ea-admin-open");
+    document.body.classList.add("ea-admin-open");
     if (!existing) {
       existing = document.createElement("div");
       existing.id = "ea-admin-console";

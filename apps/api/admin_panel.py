@@ -48,7 +48,7 @@ def _now_iso() -> str:
 
 def _live_api_key_masked() -> str:
     key = os.environ.get("EDUCORE_LLM_API_KEY", "").strip()
-    return ("***" + key[-4:]) if len(key) >= 4 else "No configurada"
+    return "Configurada (oculta por seguridad)" if len(key) >= 4 else "No configurada"
 
 
 def _live_model() -> str:

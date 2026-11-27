@@ -18,7 +18,7 @@
       role: "Docente",
       selector: ".ref-rail nav a:nth-child(2)",
       body:
-        "En Materiales o Asignaturas creas tu materia, agregas unidades con objetivos de aprendizaje y subes tus apuntes o PDFs autorizados (hasta 40 páginas por archivo).",
+        "En Materiales o Asignaturas creas tu materia, agregas unidades con objetivos de aprendizaje y subes tus apuntes o PDFs autorizados (hasta 100 páginas por archivo).",
       actionLabel: "Abrir Asignaturas",
       action: function () {
         switchMode("teacher");
@@ -1414,6 +1414,19 @@
       });
 
     observer.observe(document.body, { childList: true, subtree: true });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") {
+        document.querySelectorAll("details.engine-indicator[open]").forEach(function (d) {
+          d.open = false;
+        });
+      }
+    });
+    document.addEventListener("click", function (e) {
+      var target = e.target;
+      document.querySelectorAll("details.engine-indicator[open]").forEach(function (d) {
+        if (!d.contains(target)) d.open = false;
+      });
+    });
     window.addEventListener("hashchange", function () {
       enforceRoleIsolation();
       patchEngineUi();

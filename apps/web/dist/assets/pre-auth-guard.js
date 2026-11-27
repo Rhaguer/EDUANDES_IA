@@ -37,7 +37,20 @@
     // Evitar los 3 errores 401 iniciales de React antes de iniciar sesión
     if (!isSessionReady() && path.indexOf("/api/") === 0 && path.indexOf("/api/auth/") !== 0 && path !== "/api/health") {
       if (path === "/api/courses" || path === "/api/students") return jsonOk([]);
-      if (path === "/api/engine/status") return jsonOk({ mode: "openai_compat", question_engine: { state: "listo" } });
+      if (path === "/api/engine/status") {
+        return jsonOk({
+          mode: "openai_compat",
+          question_engine: { state: "listo", detail: "Motor cloud activo." },
+          reinforcement_engine: {
+            name: "openai_compat",
+            label: "Groq Cloud API",
+            state: "listo",
+            detail: "Motor cloud activo.",
+          },
+          adapter_present: false,
+          adapter_version: null,
+        });
+      }
       return jsonOk({});
     }
 
