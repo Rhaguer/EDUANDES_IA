@@ -33,7 +33,7 @@ def extract_pages(filename: str, data: bytes) -> tuple[str, list[dict]]:
             if not data.startswith(b"%PDF-"):
                 raise ValueError("El archivo no es un PDF válido.")
             reader = PdfReader(BytesIO(data))
-            if reader.is_encrypted:
+            if reader.is_encrypted and not reader.decrypt(""):
                 raise ValueError("El PDF está protegido. Carga una copia sin contraseña.")
             if len(reader.pages) > MAX_PAGES:
                 raise ValueError("Divide el documento en archivos de hasta 100 páginas.")
