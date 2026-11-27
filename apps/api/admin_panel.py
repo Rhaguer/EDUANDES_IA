@@ -17,6 +17,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
+from .native_core import native_status
 from .security_auth import (
     client_ip,
     hash_password,
@@ -170,8 +171,8 @@ def _default_sections() -> dict[str, Any]:
             "terms_url": "#/terminos",
             "privacy_url": "#/privacidad",
             "maintenance_mode": False,
-            "banner_active": True,
-            "banner_text": "EduAndes AI activo con seguridad Argon2id y cifrado HTTPS extremo a extremo.",
+            "banner_active": False,
+            "banner_text": "",
             "email_template_alert": "Estimado equipo de Orientación: se detectó una señal temprana que requiere revisión.",
         },
         "tickets": {
@@ -216,12 +217,19 @@ def initialize_admin(db_path: Path) -> None:
                 "INSERT OR IGNORE INTO admin_kv (key, value, updated_at) VALUES (?, ?, ?)",
                 (key, json.dumps(value, ensure_ascii=False), now),
             )
-        # Sincronizar dominio desactualizado si quedó el valor antiguo
+        # Sincronizar dominio y desactivar banner heredado
         site_row = db.execute("SELECT value FROM admin_kv WHERE key = 'site_config'").fetchone()
         if site_row:
             site = json.loads(site_row["value"])
+            changed = False
             if site.get("domain") == "eduandes.ecuachile.cl":
                 site["domain"] = "eduandesai.duckdns.org"
+                changed = True
+            if site.get("banner_active") and ("sincronización curricular" in str(site.get("banner_text", "")).lower() or "seguridad argon2id" in str(site.get("banner_text", "")).lower()):
+                site["banner_active"] = False
+                site["banner_text"] = ""
+                changed = True
+            if changed:
                 db.execute("UPDATE admin_kv SET value = ?, updated_at = ? WHERE key = 'site_config'", (json.dumps(site, ensure_ascii=False), now))
         existing_logs = db.execute("SELECT COUNT(*) FROM admin_audit_logs").fetchone()[0]
         if existing_logs == 0:
@@ -349,6 +357,20 @@ def build_admin_router(db_path: Path) -> APIRouter:
             active_sessions = int(
                 db.execute("SELECT COUNT(*) FROM auth_sessions WHERE revoked = 0 AND expires_at > ?", (time.time(),)).fetchone()[0]
             )
+            cols = {r["name"] for r in db.execute("PRAGMA table_info(ec_students)").fetchall()}
+            owner_sel = "s.owner_email" if "owner_email" in cols else "NULL AS owner_email"
+            student_profiles = [
+                dict(r)
+                for r in db.execute(
+                    f"""
+                    SELECT s.id, s.name, s.goals, s.created_at, {owner_sel},
+                           (SELECT COUNT(*) FROM ec_enrollments e WHERE e.student_id = s.id) AS course_count,
+                           (SELECT COUNT(*) FROM ec_attempts a WHERE a.student_id = s.id) AS attempt_count
+                    FROM ec_students s
+                    ORDER BY s.name COLLATE NOCASE, s.created_at
+                    """
+                ).fetchall()
+            ]
             real_stats = {
                 "units": _count("ec_units"),
                 "materials": _count("ec_materials"),
@@ -358,7 +380,7 @@ def build_admin_router(db_path: Path) -> APIRouter:
                 "questions": _count("questions"),
                 "active_sessions": active_sessions,
             }
-        return {"sections": sections, "audit_logs": logs, "real_stats": real_stats}
+        return {"sections": sections, "student_profiles": student_profiles, "audit_logs": logs, "real_stats": real_stats}
 
     @router.put("/section/{section}")
     def update_section(section: str, body: SectionUpdate, request: Request):
@@ -520,6 +542,44 @@ def build_admin_router(db_path: Path) -> APIRouter:
             )
             return {"ok": True, "accounts": list_auth_users(db), "audit_logs": _recent_logs(db)}
 
+    @router.delete("/students/{student_id}")
+    def delete_student_profile(student_id: str, request: Request):
+        admin = require_admin(db_path, request)
+        with connect(db_path, write=True) as db:
+            row = db.execute("SELECT id, name FROM ec_students WHERE id = ?", (student_id,)).fetchone()
+            if not row:
+                raise HTTPException(404, "Perfil de alumno no encontrado.")
+            attempt_ids = [r[0] for r in db.execute("SELECT id FROM ec_attempts WHERE student_id = ?", (student_id,)).fetchall()]
+            for aid in attempt_ids:
+                db.execute("DELETE FROM ec_reinforcements WHERE attempt_id = ?", (aid,))
+            db.execute("DELETE FROM ec_attempts WHERE student_id = ?", (student_id,))
+            db.execute("DELETE FROM ec_enrollments WHERE student_id = ?", (student_id,))
+            db.execute("DELETE FROM ec_students WHERE id = ?", (student_id,))
+            _log_audit(
+                db,
+                actor=admin["email"],
+                actor_role=admin["role"],
+                action="DELETE_STUDENT_PROFILE",
+                target=f"{row['name']} ({student_id})",
+                reason="Eliminación administrativa de perfil de alumno",
+                ip=client_ip(request),
+            )
+            cols = {r["name"] for r in db.execute("PRAGMA table_info(ec_students)").fetchall()}
+            owner_sel = "s.owner_email" if "owner_email" in cols else "NULL AS owner_email"
+            profiles = [
+                dict(r)
+                for r in db.execute(
+                    f"""
+                    SELECT s.id, s.name, s.goals, s.created_at, {owner_sel},
+                           (SELECT COUNT(*) FROM ec_enrollments e WHERE e.student_id = s.id) AS course_count,
+                           (SELECT COUNT(*) FROM ec_attempts a WHERE a.student_id = s.id) AS attempt_count
+                    FROM ec_students s
+                    ORDER BY s.name COLLATE NOCASE, s.created_at
+                    """
+                ).fetchall()
+            ]
+            return {"ok": True, "student_profiles": profiles, "audit_logs": _recent_logs(db)}
+
     @router.post("/users/import-csv")
     def import_users_csv(body: CsvImportInput, request: Request):
         admin = require_admin(db_path, request)
@@ -632,6 +692,7 @@ def build_admin_router(db_path: Path) -> APIRouter:
             "checked_at": _now_iso(),
             "database": {"ok": db_ok, "latency_ms": db_ms},
             "security": {"hashing": "Argon2id (OWASP)", "session": "HttpOnly SHA-256 Cookie", "pii_filter": True},
+            "native_core": native_status(),
             "vector_rag": {"ok": True, "detail": "Índice de citas literales operativo"},
             "ai_provider": {
                 "engine": engine,

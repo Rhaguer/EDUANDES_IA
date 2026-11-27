@@ -209,6 +209,32 @@ def list_auth_users(db: sqlite3.Connection) -> list[dict[str, Any]]:
     ]
 
 
+def ensure_student_profile(db_path: Path, user: dict[str, Any]) -> str | None:
+    """Garantiza un perfil ec_students aislado para cada cuenta Estudiante y la inscribe en las asignaturas."""
+    if not user or user.get("role") != "Estudiante":
+        return None
+    email = user["email"].strip().lower()
+    with connect(db_path, write=True) as db:
+        cols = {r["name"] for r in db.execute("PRAGMA table_info(ec_students)").fetchall()}
+        if "owner_email" not in cols:
+            db.execute("ALTER TABLE ec_students ADD COLUMN owner_email TEXT")
+        row = db.execute("SELECT id FROM ec_students WHERE LOWER(owner_email) = ?", (email,)).fetchone()
+        now_str = _now_utc().isoformat()
+        if row is None:
+            sid = str(secrets.token_hex(4) + "-" + secrets.token_hex(2) + "-4" + secrets.token_hex(2)[:3] + "-a" + secrets.token_hex(2)[:3] + "-" + secrets.token_hex(6))
+            db.execute(
+                "INSERT INTO ec_students (id, name, goals, presentation, created_at, updated_at, owner_email) VALUES (?, ?, ?, 'auto', ?, ?, ?)",
+                (sid, user.get("name") or "Estudiante", "Aprender practicando con EduAndes AI", now_str, now_str, email),
+            )
+        else:
+            sid = row["id"]
+        # Inscribir automáticamente en todas las asignaturas disponibles
+        course_ids = [r[0] for r in db.execute("SELECT id FROM ec_courses").fetchall()]
+        for cid in course_ids:
+            db.execute("INSERT OR IGNORE INTO ec_enrollments (student_id, course_id, created_at) VALUES (?, ?, ?)", (sid, cid, now_str))
+    return sid
+
+
 def get_session_user(db_path: Path, request: Request) -> dict[str, Any] | None:
     raw_token = request.cookies.get(COOKIE_NAME)
     if not raw_token or len(raw_token) < 20:
@@ -384,17 +410,19 @@ def build_auth_router(db_path: Path) -> APIRouter:
             secure=is_https_request(request),
             path="/",
         )
+        user_payload = {
+            "id": row["id"],
+            "name": row["name"],
+            "email": row["email"],
+            "role": row["role"],
+            "view_role": ROLE_TO_VIEW.get(row["role"], "student"),
+            "institution": row["institution"],
+            "mfa": bool(row["mfa"]),
+        }
+        user_payload["student_id"] = ensure_student_profile(db_path, user_payload)
         return {
             "authenticated": True,
-            "user": {
-                "id": row["id"],
-                "name": row["name"],
-                "email": row["email"],
-                "role": row["role"],
-                "view_role": ROLE_TO_VIEW.get(row["role"], "student"),
-                "institution": row["institution"],
-                "mfa": bool(row["mfa"]),
-            },
+            "user": user_payload,
         }
 
     @router.post("/logout")
@@ -427,6 +455,7 @@ def build_auth_router(db_path: Path) -> APIRouter:
         if not user:
             return {"authenticated": False, "user": None, "site": site_meta}
         safe_user = {k: v for k, v in user.items() if k != "token_hash"}
+        safe_user["student_id"] = ensure_student_profile(db_path, safe_user)
         return {"authenticated": True, "user": safe_user, "site": site_meta}
 
     @router.post("/change-password")

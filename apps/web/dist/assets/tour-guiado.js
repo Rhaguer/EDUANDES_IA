@@ -7,10 +7,9 @@
       role: "General",
       selector: ".ref-topbar",
       body:
-        "EduAndes AI convierte material autorizado del docente en actividades evaluativas con cita literal verificada y refuerzos personalizados. En la barra superior puedes alternar entre modo Docente y modo Estudiante, además de activar opciones de Inclusión.",
-      actionLabel: "Ir a Panel Docente",
+        "EduAndes AI convierte material autorizado del docente en actividades evaluativas con cita literal verificada y refuerzos personalizados. Cada usuario ingresa con su rol autenticado (Administrador, Docente o Estudiante), con opciones de Inclusión y el tutor flotante AndesBot.",
+      actionLabel: "Ir al Inicio",
       action: function () {
-        switchMode("teacher");
         window.location.hash = "#/";
       },
     },
@@ -951,6 +950,41 @@
     page.appendChild(card);
   }
 
+  function clearWorkspaceStorage() {
+    try {
+      Object.keys(localStorage).forEach(function (k) {
+        if (k.indexOf("educore.") === 0) localStorage.removeItem(k);
+      });
+    } catch (_) {}
+  }
+
+  function setTextSafe(el, txt) {
+    if (el && el.textContent !== txt) el.textContent = txt;
+  }
+
+  function patchEngineUi() {
+    var info = window.__eduandesEngineStatus || null;
+    var model = (info && info.model_name) || "qwen/qwen3.8-27b";
+    var nc = (info && info.native_core) || {};
+    var sumStrong = document.querySelector("details.engine-indicator > summary .engine-label strong");
+    if (sumStrong) setTextSafe(sumStrong, model + " + C++20");
+    var sumSmall = document.querySelector("details.engine-indicator > summary .engine-label small, details.engine-indicator > summary .engine-status");
+    if (sumSmall && /lora|qwen3-1\.7b|no encontrado/i.test(sumSmall.textContent || "")) {
+      setTextSafe(sumSmall, "Groq Cloud · Activo");
+    }
+    var pop = document.querySelector("details.engine-indicator .engine-popover");
+    if (!pop) return;
+    var lis = pop.querySelectorAll("ul > li");
+    if (lis[0]) setTextSafe(lis[0].querySelector("span"), "Groq Cloud (" + model + ") · activo");
+    if (lis[1]) setTextSafe(lis[1].querySelector("span"), model + " · citas literales verificadas");
+    if (lis[2]) {
+      setTextSafe(lis[2].querySelector("strong"), "Núcleo Nativo C++20");
+      setTextSafe(lis[2].querySelector("span"), nc.active ? ("Activo (" + (nc.version || "cpp20") + ") · Sin LoRA local") : "Modo cloud ultraliviano");
+    }
+    setTextSafe(pop.querySelector(".engine-note"), "Arquitectura segura: Groq Cloud HTTPS + validación C++20 + Argon2id.");
+  }
+  window.addEventListener("eduandes-engine-status", patchEngineUi);
+
   function logoutToWelcome() {
     closeTour();
     closeA11yModal();
@@ -963,8 +997,8 @@
       sessionStorage.removeItem(AUTH_EMAIL_KEY);
       sessionStorage.removeItem(AUTH_IS_ADMIN_KEY);
       sessionStorage.removeItem("eduandes.admin.view");
-      localStorage.removeItem("educore.student-id");
     } catch (_) {}
+    clearWorkspaceStorage();
     window.dispatchEvent(new CustomEvent("eduandes-auth-changed", { detail: { email: null, role: null } }));
     fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" })
       .catch(function () {})
@@ -1039,6 +1073,7 @@
       }
 
       enforceRoleIsolation();
+      patchEngineUi();
 
     if (!topbar.querySelector(".ea-binational-pill")) {
       var pill = document.createElement("div");
@@ -1259,13 +1294,16 @@
           var u = data.user || {};
           var isAdm = u.role === "Administrador";
           var viewRole = u.view_role === "student" ? "student" : "teacher";
+          clearWorkspaceStorage();
           try {
             sessionStorage.setItem(AUTH_ROLE_KEY, viewRole);
             sessionStorage.setItem(AUTH_EMAIL_KEY, u.email || email);
             sessionStorage.setItem(AUTH_IS_ADMIN_KEY, isAdm ? "1" : "0");
             sessionStorage.setItem("eduandes.admin.view", isAdm ? "1" : "0");
             sessionStorage.setItem(WELCOME_STORAGE_KEY, "1");
+            localStorage.setItem("educore.auth-user", u.email || email);
             localStorage.setItem(VIEW_MODE_KEY, viewRole);
+            if (u.student_id) localStorage.setItem("educore.student-id", u.student_id);
           } catch (_) {}
           window.location.hash = isAdm ? "#/admin" : "#/";
           window.location.reload();
@@ -1308,16 +1346,6 @@
       document.body.appendChild(maint);
       var btn = maint.querySelector("#ea-maint-logout");
       if (btn) btn.addEventListener("click", logoutToWelcome);
-      return;
-    }
-
-    if (site.banner_active && site.banner_text) {
-      var banner = document.createElement("div");
-      banner.id = "ea-global-banner";
-      banner.className = "ea-global-banner";
-      banner.setAttribute("role", "status");
-      banner.textContent = site.banner_text;
-      document.body.insertBefore(banner, document.body.firstChild);
     }
   }
 
@@ -1332,18 +1360,26 @@
           var isAdm = u.role === "Administrador";
           var viewRole = u.view_role === "student" ? "student" : "teacher";
           try {
+            var prevUser = localStorage.getItem("educore.auth-user");
+            if (prevUser && prevUser !== (u.email || "")) {
+              clearWorkspaceStorage();
+            }
+            localStorage.setItem("educore.auth-user", u.email || "");
             sessionStorage.setItem(AUTH_ROLE_KEY, viewRole);
             sessionStorage.setItem(AUTH_EMAIL_KEY, u.email || "");
             sessionStorage.setItem(AUTH_IS_ADMIN_KEY, isAdm ? "1" : "0");
             sessionStorage.setItem(WELCOME_STORAGE_KEY, "1");
             localStorage.setItem(VIEW_MODE_KEY, viewRole);
+            if (u.student_id) localStorage.setItem("educore.student-id", u.student_id);
             if (isAdm && sessionStorage.getItem("eduandes.admin.view") === null) {
               sessionStorage.setItem("eduandes.admin.view", "1");
             }
           } catch (_) {}
           enforceRoleIsolation();
           ensureBannerButton();
+          patchEngineUi();
           renderGlobalSiteNotices(data.site, isAdm);
+          fetch("/api/engine/status", { credentials: "same-origin" }).catch(function () {});
           window.dispatchEvent(new CustomEvent("eduandes-auth-changed", { detail: { email: u.email, role: viewRole, isAdmin: isAdm } }));
         } else {
           try {
@@ -1353,6 +1389,7 @@
             sessionStorage.removeItem(AUTH_IS_ADMIN_KEY);
             sessionStorage.removeItem("eduandes.admin.view");
           } catch (_) {}
+          clearWorkspaceStorage();
           showWelcomeScreen();
         }
       })
@@ -1363,6 +1400,7 @@
     observer.observe(document.body, { childList: true, subtree: true });
     window.addEventListener("hashchange", function () {
       enforceRoleIsolation();
+      patchEngineUi();
       setTimeout(mountReinforcementDrill, 120);
     });
   }

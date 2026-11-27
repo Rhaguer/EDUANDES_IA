@@ -9,9 +9,10 @@ from datetime import datetime, timezone
 from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, StringConstraints
 
+from .security_auth import ensure_student_profile, get_session_user
 from .store import connect
 
 
@@ -86,38 +87,59 @@ def histories(db, student_id, course_id, unit_id=None):
 def build_router(service):
     router = APIRouter()
 
+    def _own_student_id(req: Request) -> str | None:
+        user = get_session_user(service.db, req)
+        if user and user.get("role") == "Estudiante":
+            return ensure_student_profile(service.db, user)
+        return None
+
     @router.get("/students")
-    def list_students():
+    def list_students(req: Request):
+        own_sid = _own_student_id(req)
         with connect(service.db) as db:
+            if own_sid:
+                return [student(db, own_sid)]
             return [student(db, row[0]) for row in db.execute("SELECT id FROM ec_students ORDER BY name COLLATE NOCASE,created_at,id")]
 
     @router.post("/students", status_code=201)
-    def create_student(request: StudentCreate):
+    def create_student(request: StudentCreate, req: Request):
+        if _own_student_id(req):
+            raise HTTPException(403, "Solo docentes o administradores pueden crear nuevos perfiles de estudiante.")
         with connect(service.db, write=True) as db:
             courses = list(dict.fromkeys(str(value) for value in request.course_ids))
             for course_id in courses:
                 service.course(db, course_id)
             identifier, timestamp = str(uuid4()), now()
-            db.execute("INSERT INTO ec_students VALUES (?,?,?,?,?,?)", (identifier, request.name, request.goals, request.presentation, timestamp, timestamp))
+            db.execute("INSERT INTO ec_students (id, name, goals, presentation, created_at, updated_at) VALUES (?,?,?,?,?,?)", (identifier, request.name, request.goals, request.presentation, timestamp, timestamp))
             db.executemany("INSERT INTO ec_enrollments VALUES (?,?,?)", [(identifier, course_id, timestamp) for course_id in courses])
             return student(db, identifier)
 
     @router.get("/students/{student_id}")
-    def get_student(student_id: UUID):
+    def get_student(student_id: UUID, req: Request):
+        own_sid = _own_student_id(req)
+        if own_sid and str(student_id) != own_sid:
+            raise HTTPException(403, "No tienes permiso para acceder al perfil de otro estudiante.")
         with connect(service.db) as db:
             return student(db, str(student_id))
 
     @router.put("/students/{student_id}")
-    def update_student(student_id: UUID, request: StudentEdit):
+    def update_student(student_id: UUID, request: StudentEdit, req: Request):
+        own_sid = _own_student_id(req)
+        if own_sid and str(student_id) != own_sid:
+            raise HTTPException(403, "No tienes permiso para modificar el perfil de otro estudiante.")
         with connect(service.db, write=True) as db:
             student(db, str(student_id))
             db.execute("UPDATE ec_students SET name=?,goals=?,presentation=?,updated_at=? WHERE id=?", (request.name, request.goals, request.presentation, now(), str(student_id)))
             return student(db, str(student_id))
 
     @router.get("/courses/{course_id}/students")
-    def enrolled_students(course_id: UUID):
+    def enrolled_students(course_id: UUID, req: Request):
+        own_sid = _own_student_id(req)
         with connect(service.db) as db:
             service.course(db, str(course_id))
+            if own_sid:
+                prof = student(db, own_sid)
+                return [prof] if str(course_id) in prof["course_ids"] else []
             return [student(db, row[0]) for row in db.execute(
                 "SELECT s.id FROM ec_students s JOIN ec_enrollments e ON e.student_id=s.id WHERE e.course_id=? ORDER BY s.name COLLATE NOCASE,s.created_at,s.id", (str(course_id),))]
 

@@ -21,7 +21,9 @@ from pypdf.errors import PyPdfError
 from .store import ATTEMPTS, PRACTICES, REVIEWS, connect, initialize
 from .courses import CourseService, build_router
 from .admin_panel import build_admin_router, initialize_admin
+from .native_core import native_status
 from .security_auth import build_auth_router, get_session_user, initialize_auth, is_https_request
+from .tutor_chat import build_tutor_router
 
 
 MAX_CONTEXT = 50_000
@@ -226,11 +228,19 @@ def create_app(db_path: Path, adapter_dir: Path, *, engine=None) -> FastAPI:
         """Describe los motores sin cargarlos: nunca llama get_engine ni importa torch."""
         mode = _resolve_engine_mode()
         if not injected_engine and mode in {"bedrock", "openai_compat"}:
-            label = "Amazon Bedrock (cloud)" if mode == "bedrock" else "API Cloud HTTP"
-            question = {"state": "listo" if engine is not None else "sin_cargar", "detail": f"Motor ultraliviano activo ({label})."}
+            label = "Amazon Bedrock (cloud)" if mode == "bedrock" else "Groq Cloud API"
+            model_name = os.environ.get("EDUCORE_BEDROCK_MODEL_ID", "Nova Lite") if mode == "bedrock" else os.environ.get("EDUCORE_LLM_MODEL", "qwen/qwen3.8-27b")
+            question = {"state": "listo", "detail": f"Motor cloud activo ({label} · {model_name})."}
             reinforcement = {"name": mode, "label": label, **question}
-            return {"question_engine": question, "reinforcement_engine": reinforcement,
-                    "adapter_present": False, "adapter_version": None, "mode": mode}
+            return {
+                "question_engine": question,
+                "reinforcement_engine": reinforcement,
+                "adapter_present": False,
+                "adapter_version": None,
+                "mode": mode,
+                "model_name": model_name,
+                "native_core": native_status(),
+            }
 
         adapter_present, adapter_version = _adapter_identity(adapter_dir)
         if engine is not None:
@@ -312,7 +322,7 @@ def create_app(db_path: Path, adapter_dir: Path, *, engine=None) -> FastAPI:
                 return JSONResponse({"detail": "Plataforma en modo mantenimiento.", "maintenance": True}, status_code=503)
             # Restringir acciones exclusivas de docente/admin para estudiantes
             if user["role"] == "Estudiante" and method in {"POST", "PUT", "PATCH", "DELETE"}:
-                allowed_student_prefixes = ("/api/quiz-attempts", "/api/reinforcements", "/api/attempts", "/api/auth/")
+                allowed_student_prefixes = ("/api/quiz-attempts", "/api/reinforcements", "/api/attempts", "/api/auth/", "/api/tutor/")
                 allowed_student_suffixes = ("/attempts", "/submit", "/reinforcement", "/explanation")
                 if not (path.startswith(allowed_student_prefixes) or path.endswith(allowed_student_suffixes)):
                     return JSONResponse({"detail": "Acción no permitida para el rol Estudiante."}, status_code=403)
@@ -346,6 +356,7 @@ def create_app(db_path: Path, adapter_dir: Path, *, engine=None) -> FastAPI:
     application.include_router(build_auth_router(db_path))
     application.include_router(build_router(course_service))
     application.include_router(build_admin_router(db_path))
+    application.include_router(build_tutor_router(db_path, get_engine))
 
     @application.get("/api/health")
     def public_health():

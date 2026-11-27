@@ -1,6 +1,8 @@
-"""Zero-dependency text safety helpers shared by local and cloud engines."""
+"""Text safety helpers accelerated by the C++20 native core with Python fallback."""
 
 from __future__ import annotations
+
+from .native_core import has_reserved_markers
 
 RESERVED_TEXT = ("<|im_start|>", "<|im_end|>", "<|endoftext|>", "<think>", "</think>")
 
@@ -10,5 +12,5 @@ class ExampleTooLong(ValueError):
 
 
 def reject_chat_markers(text: str) -> None:
-    if any(marker in text for marker in RESERVED_TEXT):
+    if has_reserved_markers(text):
         raise ValueError("La entrada contiene un marcador reservado del modelo.")

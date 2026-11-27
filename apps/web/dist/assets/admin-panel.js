@@ -19,6 +19,7 @@
   var state = {
     activeTab: "users",
     data: null,
+    studentProfiles: [],
     auditLogs: [],
     realStats: {},
     health: null,
@@ -85,6 +86,7 @@
       api("/api/admin/health"),
     ]);
     state.data = st.sections;
+    state.studentProfiles = st.student_profiles || [];
     state.auditLogs = st.audit_logs || [];
     state.realStats = st.real_stats || {};
     state.health = hl;
@@ -191,6 +193,16 @@
       "<div class='ea-adm-card'><h3>Cuentas registradas (" + filtered.length + ")</h3>" +
         "<div class='ea-adm-field'><input id='u-search' placeholder='Buscar por nombre, correo, rol o institución...' value='" + esc(state.userFilter) + "' /></div>" +
         "<div class='ea-adm-table-wrap'><table class='ea-adm-table'><thead><tr><th>Usuario</th><th>Rol</th><th>Institución</th><th>Estado</th><th>Seguridad</th><th>Acciones</th></tr></thead><tbody>" + rowsHtml + "</tbody></table></div>" +
+      "</div>" +
+
+      "<div class='ea-adm-card'><h3>Perfiles de Alumnos creados en la Plataforma (" + state.studentProfiles.length + ")</h3>" +
+        "<div class='ea-adm-table-wrap'><table class='ea-adm-table'><thead><tr><th>Alumno</th><th>Cuenta vinculada</th><th>Asignaturas</th><th>Intentos</th><th>Acción</th></tr></thead><tbody>" +
+        (state.studentProfiles.length
+          ? state.studentProfiles.map(function (sp) {
+              return "<tr><td><strong>" + esc(sp.name) + "</strong><br><small>" + esc(sp.id) + "</small></td><td>" + esc(sp.owner_email || "Perfil manual") + "</td><td>" + esc(sp.course_count || 0) + "</td><td>" + esc(sp.attempt_count || 0) + "</td><td><button class='ea-adm-btn is-sm is-danger' data-del-student='" + esc(sp.id) + "' data-student-name='" + esc(sp.name) + "'>Eliminar alumno</button></td></tr>";
+            }).join("")
+          : "<tr><td colspan='5'><small>No hay perfiles de alumnos creados.</small></td></tr>") +
+        "</tbody></table></div>" +
       "</div>" +
 
       "<div class='ea-adm-grid'>" +
@@ -422,7 +434,7 @@
       "<div class='ea-adm-grid'>" +
         "<div class='ea-adm-kpi'><div class='ea-adm-kpi-label'>Base de Datos SQLite</div><div class='ea-adm-kpi-value'>" + (h.database && h.database.ok ? "Online" : "Error") + "</div><div class='ea-adm-kpi-sub'>Latencia: " + esc(h.database ? h.database.latency_ms : "-") + " ms · Disco: " + esc(h.disk_free_gb || "-") + " GB</div></div>" +
         "<div class='ea-adm-kpi'><div class='ea-adm-kpi-label'>Motor IA (" + esc(h.ai_provider ? h.ai_provider.engine : "-") + ")</div><div class='ea-adm-kpi-value'>" + (h.ai_provider && h.ai_provider.configured ? "Conectado" : "Sin API Key") + "</div><div class='ea-adm-kpi-sub'>Modelo: " + esc(h.ai_provider ? h.ai_provider.model : "-") + "</div></div>" +
-        "<div class='ea-adm-kpi'><div class='ea-adm-kpi-label'>Ciberseguridad Activa</div><div class='ea-adm-kpi-value'>Argon2id</div><div class='ea-adm-kpi-sub'>HttpOnly SHA-256 · CSP · HSTS · Anti-BruteForce</div></div>" +
+        "<div class='ea-adm-kpi'><div class='ea-adm-kpi-label'>Ciberseguridad + Núcleo Nativo</div><div class='ea-adm-kpi-value'>Argon2id + C++20</div><div class='ea-adm-kpi-sub'>" + (h.native_core && h.native_core.active ? ("C++20 Activo (" + esc(h.native_core.version) + ")") : "Python fallback") + " · HttpOnly · CSP · HSTS</div></div>" +
       "</div>" +
 
       "<div class='ea-adm-card'><h3>Personalización (Branding), Banner y Modo Mantenimiento</h3>" +
@@ -590,6 +602,22 @@
           .catch(function (e) { showToast(e.message); });
       });
     }
+
+    root.querySelectorAll("[data-del-student]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var sid = btn.getAttribute("data-del-student");
+        var sname = btn.getAttribute("data-student-name") || sid;
+        if (!window.confirm("¿Eliminar definitivamente al alumno '" + sname + "' y todo su historial?")) return;
+        api("/api/admin/students/" + encodeURIComponent(sid), { method: "DELETE" })
+          .then(function (r) {
+            state.studentProfiles = r.student_profiles || [];
+            state.auditLogs = r.audit_logs || state.auditLogs;
+            showToast("Alumno eliminado: " + sname);
+            render();
+          })
+          .catch(function (e) { showToast(e.message); });
+      });
+    });
 
     root.querySelectorAll("[data-act]").forEach(function (btn) {
       btn.addEventListener("click", function () {
