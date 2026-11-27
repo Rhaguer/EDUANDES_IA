@@ -29,10 +29,10 @@
 ## 3. Credenciales Iniciales (Argon2id)
 | Rol | Usuario (Correo) | Contraseña |
 |---|---|---|
-| **Administrador** | `administrador@ecuachile.cl` | `EduAndes#Adm2026!` |
-| **Docente** | `docente@ecuachile.cl` | `EduAndes#Doc2026!` |
-| **Estudiante** | `estudiante@ecuachile.cl` | `EduAndes#Est2026!` |
-| **Directivo / Orientador** | `orientacion@ecuachile.cl` | `EduAndes#Ori2026!` |
+| **Administrador** | `administrador@ecuachile.cl` | `123456` |
+| **Docente** | `docente@ecuachile.cl` | `123456` |
+| **Estudiante** | `estudiante@ecuachile.cl` | `123456` |
+| **Directivo / Orientador** | `orientacion@ecuachile.cl` | `123456` |
 
 ## 4. Guía Paso a Paso por Rol
 1. **Administrador:** ingresa con `administrador@ecuachile.cl` → gestiona cuentas Argon2id y elimina perfiles de alumnos en *1. Usuarios*, revisa gobernanza IA y Modo Evaluación en *3. Gobernanza IA*, genera backups y descarga Audit Logs en *5. Seguridad*, y revisa el estado de SQLite, Groq y C++20 en *7. Sitio Global*.
